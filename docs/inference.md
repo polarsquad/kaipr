@@ -23,8 +23,8 @@ four components, all in the `ai-platform` namespace:
 
 Pinned versions ( Renovate tracks the OCI/Git tags):
 
-- Gateway API CRDs: `v1.6.0` (standard channel)
-- Gateway API Inference Extension CRDs: `v1.5.0`
+- Gateway API CRDs: `v1.6.2` (**experimental** channel)
+- Gateway API Inference Extension CRDs: `v1.6.2`
 - agentgateway: `v2.2.1` (chart `oci://ghcr.io/agentgateway/charts/agentgateway`)
 - agentgateway CRDs: `0.0.0-alpha.a655af15` (`.../agentgateway-crds`)
 - llm-d Router Gateway chart: `v0.9.0` (`oci://ghcr.io/llm-d/charts/llm-d-router-gateway`)
@@ -71,8 +71,13 @@ installed once per cluster by the platform operator - they are not workload
 objects this kustomization owns. Install them before the AI layer reconciles:
 
 ```sh
-kubectl apply -f "https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.6.0/standard-install.yaml"
-kubectl apply -f "https://github.com/kubernetes-sigs/gateway-api-inference-extension/releases/download/v1.5.0/inference-standard-install.yaml"
+# Gateway API: the experimental channel, not the standard one. The
+# agentgateway controller registers informers for TCPRoute/TLSRoute at
+# v1alpha2; the standard channel marks v1alpha2 served:false, so the
+# controller never syncs and crash-loops. Experimental serves v1alpha2
+# (deprecated) and matches the tested reference deployment.
+kubectl apply -f "https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.6.2/experimental-install.yaml"
+kubectl apply -f "https://github.com/kubernetes-sigs/gateway-api-inference-extension/releases/download/v1.6.2/manifests.yaml"
 ```
 
 The `agentgateway.dev` CRDs (`AgentgatewayBackend`, `AgentgatewayPolicy`,

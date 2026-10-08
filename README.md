@@ -97,7 +97,7 @@ scripts/toolbox-run.sh teardown
 `workload/local-host/ai-platform/` reconciles the inference platform onto the
 workload cluster:
 
-- **agentgateway** (v2.2.1) with `inferenceExtension.enabled=true`, the
+- **agentgateway** (v1.6.0) with `inferenceExtension.enabled=true`, the
   `agentgateway` GatewayClass, and the `inference-gateway` Gateway.
 - **Gateway API Inference Extension**: an `InferencePool` that selects the
   model-server pods by label, plus the **llm-d Router** EPP (v0.9.0) that

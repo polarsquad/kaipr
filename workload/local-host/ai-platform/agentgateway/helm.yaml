@@ -8,15 +8,19 @@
 # Gateway API Inference Extension CRDs (inference.networking.k8s.io) must
 # already be installed cluster-wide before this reconciles. They are
 # operator prerequisites, installed once per cluster (see
-# docs/runbook-local-host.md) — not workload objects this kustomization
-# owns. The agentgateway-crds OCI source in sources.yaml carries the
-# agentgateway.dev CRDs (AgentgatewayBackend/Policy/Parameters) that the
-# operator installs with the control plane.
+# docs/inference.md, "CRD prerequisites") - not workload objects this
+# kustomization owns. The agentgateway-crds OCI source in sources.yaml and
+# the agentgateway-crds HelmRelease below carry the agentgateway.dev CRDs
+# (AgentgatewayBackend/Policy/Parameters/Model) that the control plane
+# deserializes.
 #
-# The v2.2.1 chart ships no default container securityContext, so the
-# hardening is set explicitly here (runAsNonRoot/readOnlyRootFilesystem are
-# omitted pending verification of the controller image's UID/write paths,
-# the same caveat biggs.dog documents).
+# The v1.6.0 chart ships a default container securityContext
+# (allowPrivilegeEscalation: false, readOnlyRootFilesystem: true,
+# runAsNonRoot: true, capabilities drop ALL). The `with/else` in the
+# deployment template means setting `securityContext:` in values REPLACES the
+# whole block, so the override re-states the chart defaults verbatim and adds
+# only the seccomp profile. (The controller image is verified to run with
+# runAsNonRoot/readOnlyRootFilesystem - the v1.6.0 chart default sets both.)
 apiVersion: helm.toolkit.fluxcd.io/v2
 kind: HelmRelease
 metadata:
@@ -27,6 +31,10 @@ spec:
     kind: OCIRepository
     name: agentgateway
     namespace: flux-system
+  # The controller deserializes agentgateway.dev CRDs on start; the CRDs
+  # HelmRelease must be Ready first or the controller crash-loops.
+  dependsOn:
+    - name: agentgateway-crds
   interval: 10m
   timeout: 5m
   install:
@@ -34,16 +42,33 @@ spec:
   values:
     inferenceExtension:
       enabled: true
-    controller:
-      extraEnv:
-        KGW_ENABLE_GATEWAY_API_EXPERIMENTAL_FEATURES: "true"
     podSecurityContext:
       seccompProfile:
         type: RuntimeDefault
     securityContext:
       allowPrivilegeEscalation: false
+      readOnlyRootFilesystem: true
+      runAsNonRoot: true
       capabilities:
         drop:
           - ALL
       seccompProfile:
         type: RuntimeDefault
+---
+# The agentgateway.dev CRDs. Applied from the matching chart release so the
+# CRD schema and the controller that deserializes it are the same version.
+# (A CRD/chart version skew is exactly how the v2.2.1-era pin bug shipped:
+# the CRD exposed `spec.ai.provider.custom` but the controller could not
+# translate it.) Installed in the same namespace as the control plane; the
+# CRDs themselves are cluster-scoped.
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: agentgateway-crds
+  namespace: ai-platform
+spec:
+  chartRef:
+    kind: OCIRepository
+    name: agentgateway-crds
+    namespace: flux-system
+  interval: 10m

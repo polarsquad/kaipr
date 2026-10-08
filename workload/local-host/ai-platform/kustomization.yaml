@@ -3,8 +3,7 @@ kind: Kustomization
 # The AI platform on the workload cluster: an agentgateway inference gateway
 # in front of an InferencePool + llm-d Router Endpoint Picker, with a
 # CPU-reproducible model server and LLM-aware agentgateway policies. See
-# docs/inference.md for the request path and docs/runbook-local-host.md for
-# bringing it up.
+# docs/inference.md for the request path and bring-up steps.
 resources:
   - namespace.yaml
   - ./agentgateway

@@ -11,24 +11,34 @@ CDF CI/CD AI SIG calls for: a reference architecture, not a product.
 ## What is deployed
 
 The `ai-platform` kustomization (`workload/local-host/ai-platform/`) reconciles
-four components, all in the `ai-platform` namespace:
+five components, all in the `ai-platform` namespace:
 
 | Component | Path | What it creates |
 |---|---|---|
 | Gateway API + Inference Extension CRDs | (operator prerequisite) | the `gateway.networking.k8s.io` and `inference.networking.k8s.io` CRDs |
-| agentgateway | `agentgateway/` | the data-plane + control-plane, the `agentgateway` GatewayClass, and the `inference-gateway` Gateway |
+| agentgateway CRDs | `agentgateway/` | the `agentgateway.dev` CRDs (`AgentgatewayBackend`/`Policy`/`Parameters`/`Model`), applied by the `agentgateway-crds` HelmRelease |
+| agentgateway | `agentgateway/` | the control plane (controller), the `agentgateway` GatewayClass, the `inference-gateway` Gateway, and the self-deployed data plane |
 | Model server | `model-server/` | a CPU-reproducible vLLM stand-in (`vllm-sim`) |
 | llm-d Router | `inference/` | the `InferencePool` + EPP Deployment/Service (no HTTPRoute) |
 | LLM policies | `policies/` | the `AgentgatewayBackend`, the single LLM `HTTPRoute`, and a token-budget `AgentgatewayPolicy` |
 
-Pinned versions ( Renovate tracks the OCI/Git tags):
+Pinned versions (Renovate tracks the OCI/Git tags):
 
 - Gateway API CRDs: `v1.6.2` (**experimental** channel)
 - Gateway API Inference Extension CRDs: `v1.6.2`
-- agentgateway: `v2.2.1` (chart `oci://ghcr.io/agentgateway/charts/agentgateway`)
-- agentgateway CRDs: `0.0.0-alpha.a655af15` (`.../agentgateway-crds`)
+- agentgateway: `v1.6.0` (chart `oci://ghcr.io/agentgateway/charts/agentgateway`)
+- agentgateway CRDs: `v1.6.0` (`oci://ghcr.io/agentgateway/charts/agentgateway-crds`) - the tag MUST match the agentgateway chart
 - llm-d Router Gateway chart: `v0.9.0` (`oci://ghcr.io/llm-d/charts/llm-d-router-gateway`)
 - Model server: `ghcr.io/llm-d/llm-d-inference-sim:v0.8.2`
+
+The agentgateway chart and CRDs are pinned to the same release on purpose.
+The `custom` LLM provider on `AgentgatewayBackend` was added in v1.4.0; a
+CRD/chart version skew (a CRD that exposes `spec.ai.provider.custom` paired
+with a controller that cannot translate it) makes the backend land in
+`Accepted=False / TranslationError: no supported LLM provider configured`.
+The `v2.x` chart line is a separate kgateway-style deployment whose
+self-deployed data plane is a legacy image and whose controller predates
+custom-provider translation - do not pin it for an inference reference.
 
 ## The request path
 
@@ -71,24 +81,27 @@ installed once per cluster by the platform operator - they are not workload
 objects this kustomization owns. Install them before the AI layer reconciles:
 
 ```sh
-# Gateway API: the experimental channel, not the standard one. The
-# agentgateway controller registers informers for TCPRoute/TLSRoute at
-# v1alpha2; the standard channel marks v1alpha2 served:false, so the
-# controller never syncs and crash-loops. Experimental serves v1alpha2
-# (deprecated) and matches the tested reference deployment.
+# Gateway API: v1.6.2, the same release the agentgateway v1.6.0 controller
+# is built against (its go.mod pins gateway-api v1.6.2). The experimental
+# channel is used so the optional experimental-only CRDs (xbackends) exist
+# if the controller's XBackend support is ever enabled; the v1.6.0
+# controller's core routes (HTTP/GRPC/TCP/TLS) are all v1 and work with the
+# standard channel too.
 kubectl apply -f "https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.6.2/experimental-install.yaml"
 kubectl apply -f "https://github.com/kubernetes-sigs/gateway-api-inference-extension/releases/download/v1.6.2/manifests.yaml"
 ```
 
 The `agentgateway.dev` CRDs (`AgentgatewayBackend`, `AgentgatewayPolicy`,
-`AgentgatewayParameters`) come from the `agentgateway-crds` OCI source already
-declared in `agentgateway/sources.yaml`. The `agentgateway` HelmRelease expects
-them present, so apply that chart's CRDs (or the same source) before the
-control plane starts:
+`AgentgatewayParameters`, `AgentgatewayModel`) are applied by the
+`agentgateway-crds` HelmRelease in `agentgateway/helm.yaml` from the
+`agentgateway-crds` OCI source in `agentgateway/sources.yaml` - the same
+`v1.6.0` tag as the control plane chart. Because that HelmRelease is in the
+same kustomization, Flux orders it before the `agentgateway` control plane.
+On a non-Flux cluster, install them by hand from the same chart:
 
 ```sh
-helm repo add agentgateway https://cr.agentgateway.dev/charts
-helm install agentgateway-crds agentgateway/agentgateway-crds   --version 0.0.0-alpha.a655af15 --namespace agentgateway-system --create-namespace
+helm install agentgateway-crds oci://ghcr.io/agentgateway/charts/agentgateway-crds \
+  --version v1.6.0 --namespace ai-platform --create-namespace
 ```
 
 ## Bring-up
@@ -118,19 +131,21 @@ kubectl get deployment vllm-sim-epp -n ai-platform
 # the LLM route is PROGRAMMED and ATTACHED to the gateway
 kubectl get httproute vllm-sim-llm -n ai-platform -o jsonpath='{.status.conditions}'
 
-# the agentgateway LLM policies are bound
+# the agentgateway LLM policies are bound (Accepted=True means the
+# AgentgatewayBackend translated, including the custom provider)
 kubectl get agentgatewaybackend vllm-sim -n ai-platform
 kubectl get agentgatewaypolicy vllm-sim-token-budget -n ai-platform
 ```
 
-The `inference-gateway` Gateway has no `spec.addresses` (a laptop kind cluster
-has no fixed IP). Read the resolved address back from status, then port-forward
-the gateway for a host-side smoke test:
+The `inference-gateway` Gateway has no `spec.addresses` on a laptop kind
+cluster (the controller's LoadBalancer service has no public IP). The data
+plane is the controller-self-deployed `inference-gateway` Deployment, and its
+`inference-gateway` Service (LoadBalancer, port 80) carries the listener.
+Port-forward that service for a host-side smoke test:
 
 ```sh
-kubectl get gateway inference-gateway -n ai-platform   -o jsonpath='{.status.addresses[0].value}'
-kubectl port-forward -n ai-platform svc/agentgateway 8080:8080
-curl -s http://localhost:8080/v1/chat/completions   -H 'content-type: application/json'   -d '{"model":"Qwen/Qwen3-32B","messages":[{"role":"user","content":"hi"}],"max_tokens":8}'
+kubectl port-forward -n ai-platform svc/inference-gateway 18080:80
+curl -s http://localhost:18080/v1/chat/completions   -H 'content-type: application/json'   -d '{"model":"Qwen/Qwen3-32B","messages":[{"role":"user","content":"hi"}],"max_tokens":8}'
 ```
 
 The simulator returns a deterministic, model-shaped completion (no weights, no

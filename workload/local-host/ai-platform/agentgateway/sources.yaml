@@ -1,6 +1,18 @@
 ---
-# agentgateway (control plane) chart. Same release and pin as biggs.dog
-# cluster1 runs today; Renovate tracks the OCI tag.
+# agentgateway (control plane + data plane deployer) chart. Pinned to the
+# latest *release* line that implements the inference path this reference
+# exercises: the `custom` LLM provider on AgentgatewayBackend (added in
+# v1.4.0) and Gateway API Inference Extension (InferencePool) support. The
+# controller also deploys the data plane itself from its own embedded chart,
+# so the control plane and data plane are always the same release.
+#
+# Do NOT pin the `v2.x` chart line here: it is the kgateway-style
+# deployment (KGW_* env vars) whose self-deployed data plane is the legacy
+# `agentgateway:0.12.0` image, and whose controller does not translate
+# `spec.ai.provider.custom` (AgentgatewayBackend lands in
+# TranslationError "no supported LLM provider configured"). biggs.dog uses
+# that line as a plain networking gateway, which never exercises the LLM
+# path and so does not expose the gap.
 apiVersion: source.toolkit.fluxcd.io/v1
 kind: OCIRepository
 metadata:
@@ -10,12 +22,16 @@ spec:
   interval: 1h
   url: oci://ghcr.io/agentgateway/charts/agentgateway
   ref:
-    tag: "v2.2.1"
+    tag: "v1.6.0"
 ---
 # The agentgateway CRDs (AgentgatewayBackend / AgentgatewayPolicy /
-# AgentgatewayParameters). The Gateway API and Gateway API Inference
-# Extension CRDs are NOT shipped by this chart: they are installed by the
-# platform operator from their upstream sources (see the docs runbook).
+# AgentgatewayParameters / AgentgatewayModel). The Gateway API and Gateway
+# API Inference Extension CRDs are NOT shipped by this chart: they are
+# installed by the platform operator from their upstream sources (see the
+# docs runbook). The tag MUST match the agentgateway chart tag above: the
+# controller deserializes spec fields the CRD only exposes if they were
+# released in the same line (a CRD/chart version skew is how the
+# TranslationError pin bug above ships.
 apiVersion: source.toolkit.fluxcd.io/v1
 kind: OCIRepository
 metadata:
@@ -25,4 +41,4 @@ spec:
   interval: 1h
   url: oci://ghcr.io/agentgateway/charts/agentgateway-crds
   ref:
-    tag: "0.0.0-alpha.a655af15"
+    tag: "v1.6.0"

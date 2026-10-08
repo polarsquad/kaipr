@@ -16,4 +16,4 @@ spec:
       protocol: HTTP
       allowedRoutes:
         namespaces:
-          from: SameNamespace
+          from: Same

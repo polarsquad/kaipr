@@ -1,0 +1,172 @@
+min_version = "2026.10.3"
+
+[tools]
+go = "1.27.1"
+kubectl = "1.37.0"
+python = "3.14.8"
+kind = "0.33.0"
+helm = "4.3.0"
+clusterctl = "1.14.2"
+flux2 = "2.9.6"
+sops = "3.13.3"
+age = "1.3.2"
+uv = "0.12.23"
+
+# Zarf CLI (airgap prototype). See docs/dependencies.md's "Intentional
+# differences" for why version/asset_pattern are written this way.
+[tools."github:zarf-dev/zarf"]
+version = "0.87.0"
+asset_pattern = 'zarf_v{{ version }}_{{ os(linux="Linux", macos="Darwin") }}_{{ arch(x64="amd64") }}'
+bin = "zarf"
+
+[settings]
+env_file = ".env"
+
+[tasks.validate]
+description = "Check scripts, cross-check bootstrap config, and build every kustomize overlay"
+run = '''
+fail=0
+for script in bootstrap.sh bootstrap-common.sh pivot.sh teardown.sh scripts/toolbox-run.sh; do
+  echo "==> bash -n $script"
+  if ! bash -n "$script"; then
+    echo "    FAILED: $script" >&2
+    fail=1
+  fi
+done
+echo "==> toolbox-run.sh exec (image and CLI args reach the container engine)"
+if ! python3 tests/test-toolbox-run-exec.py; then
+  echo "    FAILED: toolbox-run.sh exec" >&2
+  fail=1
+fi
+echo "==> toolbox-run.sh .env precedence"
+if ! python3 tests/test-toolbox-run-env-precedence.py; then
+  echo "    FAILED: toolbox-run.sh .env precedence" >&2
+  fail=1
+fi
+echo "==> sops-keygen prints the public key"
+if ! python3 tests/test-sops-keygen-prints-public-key.py; then
+  echo "    FAILED: sops-keygen public key" >&2
+  fail=1
+fi
+echo "==> local-host kubeconfig endpoint is host-only (toolbox keeps the kind-network endpoint)"
+if ! python3 tests/test-local-host-kubeconfig-toolbox-endpoint.py; then
+  echo "    FAILED: local-host kubeconfig toolbox endpoint" >&2
+  fail=1
+fi
+echo "==> docs show toolbox helper runs, not host mise"
+if ! python3 tests/test-docs-toolbox-helpers.py; then
+  echo "    FAILED: docs toolbox helpers" >&2
+  fail=1
+fi
+echo "==> bootstrap.toml cross-check"
+if ! python3 tests/test-bootstrap-config.py; then
+  echo "    FAILED: bootstrap.toml cross-check" >&2
+  fail=1
+fi
+echo "==> OCI publication works with host metadata and inaccessible worktree Git"
+if ! python3 tests/test-oci-push-worktree.py; then
+  echo "    FAILED: oci-push worktree" >&2
+  fail=1
+fi
+echo "==> Python lint (ruff: unused imports, subprocess.run check=)"
+if ! uv run ruff check .; then
+  echo "    FAILED: Python lint" >&2
+  fail=1
+fi
+for dir in $(find mgmt workload -name kustomization.yaml -exec dirname {} \; | sort -u); do
+  echo "==> kustomize build $dir"
+  if ! kubectl kustomize "$dir" >/dev/null; then
+    echo "    FAILED: $dir" >&2
+    fail=1
+  fi
+done
+exit $fail
+'''
+
+[tasks.sops-keygen]
+description = "Generate an age keypair (age.agekey) for SOPS; prints the public key"
+run = """
+if [ -f age.agekey ]; then
+  echo "age.agekey already exists — refusing to overwrite. Delete it first to regenerate." >&2
+  exit 1
+fi
+age-keygen -o age.agekey
+echo
+PUBLIC_KEY=$(age-keygen -y age.agekey)
+echo "Public key: $PUBLIC_KEY"
+echo "Add this public key to the 'age:' field in .sops.yaml, then run: mise run sops-updatekeys"
+"""
+
+[tasks.sops-encrypt]
+description = "Encrypt a *.sops.yaml manifest in place (usage: mise run sops-encrypt <file>)"
+run = "sops --encrypt --in-place --input-type yaml --output-type yaml"
+
+[tasks.sops-decrypt]
+description = "Decrypt a *.sops.yaml manifest to stdout (usage: mise run sops-decrypt <file>)"
+run = "sops --decrypt --input-type yaml --output-type yaml"
+
+[tasks.sops-updatekeys]
+description = "Re-encrypt all *.sops.yaml files to match recipients in .sops.yaml"
+run = """
+for f in $(find mgmt -name '*.sops.yaml'); do
+  echo "==> updatekeys $f"
+  sops updatekeys --yes "$f"
+done
+"""
+
+[tasks.bootstrap]
+description = "Bootstrap the management kind cluster, hand off to Flux/GitOps, then pivot to the self-managed management cluster (toolbox container; native path: ./bootstrap.sh)"
+run = "scripts/toolbox-run.sh bootstrap"
+
+[tasks.pivot]
+description = "Pivot the management cluster from local kind to the CAPI-managed management cluster (aws=CAPA/EKS, local-host=CAPD) (toolbox container; native path: ./pivot.sh)"
+run = "scripts/toolbox-run.sh pivot"
+
+[tasks.mgmt-kubeconfig]
+description = "Export the management-cluster kubeconfig to ~/.kube/kaipr-mgmt.yaml (toolbox: /root/.kube, persisted as .kube/kaipr-mgmt.yaml)"
+run = '''
+if [ -z "${MGMT_CLUSTER:-}" ]; then
+  case "${KAIPR_PROFILE:-aws}" in
+    local-host) MGMT_CLUSTER=local-management;;
+    local-talos) MGMT_CLUSTER=local-talos-management;;
+    azure) MGMT_CLUSTER=swedencentral-management;;
+    gcp) MGMT_CLUSTER=europe-north1-management;;
+    *) MGMT_CLUSTER=eu-north-1-management;;
+  esac
+fi
+MGMT_KUBECONFIG="${MGMT_KUBECONFIG:-$HOME/.kube/kaipr-mgmt.yaml}"
+clusterctl get kubeconfig "$MGMT_CLUSTER" -n default > "$MGMT_KUBECONFIG"
+chmod 600 "$MGMT_KUBECONFIG"
+# Host-only rewrite: inside the toolbox (KAIPR_TOOLBOX=1, on the kind
+# network) the recorded endpoint already resolves and 127.0.0.1 would be
+# the container itself. Same rule as the CLI's should_rewrite_capd_endpoint.
+if [ "${KAIPR_PROFILE:-aws}" = local-host ] && [ "${KAIPR_TOOLBOX:-0}" != 1 ]; then
+  # CAPD records the load balancer's container-network IP, which is not
+  # routable from macOS. Point at the port published on localhost instead.
+  engine="${CONTAINER_ENGINE:-docker}"
+  endpoint="$($engine port "${MGMT_CLUSTER}-lb" 6443/tcp | head -1)"
+  port="${endpoint##*:}"
+  case "$port" in
+    ''|*[!0-9]*)
+      echo "ERROR: cannot determine the ${MGMT_CLUSTER} API server port" >&2
+      exit 1
+      ;;
+  esac
+  kubectl config set-cluster "$MGMT_CLUSTER" \
+    --server="https://127.0.0.1:${port}" \
+    --kubeconfig="$MGMT_KUBECONFIG" >/dev/null
+fi
+kubectl --kubeconfig "$MGMT_KUBECONFIG" config rename-context \
+  "$(kubectl --kubeconfig "$MGMT_KUBECONFIG" config current-context)" \
+  kaipr-mgmt >/dev/null
+echo "Wrote ${MGMT_KUBECONFIG}"
+echo "Use with: KUBECONFIG=${MGMT_KUBECONFIG} kubectl get clusters"
+'''
+
+[tasks.aws-credentials]
+description = "Export AWS credentials as a profile string for SOPS-encrypted secrets"
+run = "clusterawsadm bootstrap credentials encode-as-profile"
+
+[tasks.teardown]
+description = "Tear down all infrastructure created by bootstrap (toolbox container; native path: ./teardown.sh)"
+run = "scripts/toolbox-run.sh teardown"

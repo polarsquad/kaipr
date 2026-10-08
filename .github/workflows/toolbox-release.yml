@@ -1,0 +1,209 @@
+# yaml-language-server: $schema=https://json.schemastore.org/github-workflow.json
+name: toolbox-release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: toolbox-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  gate:
+    name: Tag matches Cargo.toml version
+    runs-on: ubuntu-26.04-arm
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7.0.1
+
+      - name: Fail if tag and Cargo.toml disagree
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          cargo_version=$(sed -n 's/^version = "\(.*\)"$/\1/p' bootstrap-rs/Cargo.toml | head -1)
+          if [ "$tag" != "$cargo_version" ]; then
+            echo "::error::tag v${tag} does not match bootstrap-rs/Cargo.toml version ${cargo_version}"
+            exit 1
+          fi
+          echo "tag v${tag} matches Cargo.toml ${cargo_version}"
+
+  build:
+    name: Build ${{ matrix.arch }} (native)
+    needs: gate
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7.0.1
+
+      - name: Resolve version from tag
+        id: version
+        run: echo "value=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Docker login to GHCR
+        uses: docker/login-action@v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4.4.1
+
+      - name: Build and push single-arch
+        uses: docker/build-push-action@v7.4.0
+        with:
+          context: .
+          file: bootstrap-rs/Dockerfile
+          platforms: linux/${{ matrix.arch }}
+          push: true
+          # provenance would add unknown/unknown attestation children to the
+          # multi-arch index the merge job creates from these single-arch tags
+          provenance: false
+          tags: ghcr.io/polarsquad/kaipr-toolbox:${{ steps.version.outputs.value }}-linux-${{ matrix.arch }}
+          labels: |
+            org.opencontainers.image.version=${{ steps.version.outputs.value }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.source=https://github.com/polarsquad/kaipr
+            org.opencontainers.image.title=kaipr
+            org.opencontainers.image.licenses=Apache-2.0
+          cache-from: type=gha,scope=${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.arch }}
+
+  merge:
+    name: Merge multi-arch container image
+    needs: build
+    runs-on: ubuntu-26.04-arm
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      digest: ${{ steps.publish.outputs.digest }}
+      tags: ${{ steps.publish.outputs.tags }}
+    steps:
+      - name: Docker login to GHCR
+        uses: docker/login-action@v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4.4.1
+
+      - name: Merge and Publish
+        id: publish
+        env:
+          VERSION: ${{ github.ref_name }}
+          IMAGE: ghcr.io/polarsquad/kaipr-toolbox
+        run: |
+          version="${VERSION#v}"
+          core="${version%%-*}"
+          IFS=. read -r major minor _ <<< "$core"
+          major_minor="$major.$minor"
+          tags=("$IMAGE:$version" "$IMAGE:$major_minor")
+          # latest moves only for stable X.Y.Z (no prerelease suffix)
+          if [[ "$version" == "$core" && "$core" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            tags+=("$IMAGE:latest")
+          fi
+          target_args=()
+          for t in "${tags[@]}"; do
+            target_args+=(-t "$t")
+          done
+          echo "publishing: ${target_args[*]}"
+          docker buildx imagetools create "${target_args[@]}" \
+            "$IMAGE:${version}-linux-arm64" \
+            "$IMAGE:${version}-linux-amd64"
+
+          platforms="$(docker buildx imagetools inspect "$IMAGE:$version" \
+            --format '{{range .Manifest.Manifests}}{{.Platform.OS}}/{{.Platform.Architecture}} {{end}}')"
+          echo "published platforms: ${platforms}"
+          for want in linux/amd64 linux/arm64; do
+            if [[ "$platforms" != *"$want"* ]]; then
+              echo "::error::published manifest list is missing platform ${want} (got: ${platforms})"
+              exit 1
+            fi
+          done
+
+          digest="$(docker buildx imagetools inspect "$IMAGE:$version" --format '{{.Manifest.Digest}}')"
+          echo "merged index digest: ${digest}"
+
+          {
+            echo "digest=${digest}"
+            echo "tags=$(IFS=,; echo "${tags[*]}")"
+          } >> "$GITHUB_OUTPUT"
+
+  # arm64 runner so syft's platform-pinned scan catalogs the arm64 child
+  sign-attest:
+    name: Sign, attest
+    needs: merge
+    runs-on: ubuntu-26.04-arm
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+    steps:
+      - name: Docker login to GHCR
+        uses: docker/login-action@v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4.4.1
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@v4.1.2
+
+      - name: Install syft
+        uses: anchore/sbom-action/download-syft@v0.24.3
+
+      - name: Sign the image (keyless, workflow identity)
+        env:
+          DIGEST: ${{ needs.merge.outputs.digest }}
+          TAGS: ${{ needs.merge.outputs.tags }}
+        run: |
+          IFS=',' read -r -a tags <<< "$TAGS"
+          for ref in "${tags[@]}"; do
+            ref="${ref}@${DIGEST}"
+            echo "signing ${ref}"
+            cosign sign --yes "${ref}"
+          done
+
+      - name: Attach SBOM (Syft) to each tag
+        env:
+          DIGEST: ${{ needs.merge.outputs.digest }}
+          TAGS: ${{ needs.merge.outputs.tags }}
+        run: |
+          IFS=',' read -r -a tags <<< "$TAGS"
+          for ref in "${tags[@]}"; do
+            ref="${ref}@${DIGEST}"
+            syft "${ref}" -o spdx-json > sbom.json
+            cosign attest --yes --predicate sbom.json --type spdxjson "${ref}"
+            echo "SBOM attested to ${ref}"
+          done
+
+      - name: Upload SBOM artifact
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: toolbox-sbom-spdx
+          path: sbom.json
+          retention-days: 30

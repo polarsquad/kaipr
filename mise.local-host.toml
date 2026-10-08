@@ -1,0 +1,125 @@
+[env]
+KAIPR_PROFILE = "local-host"
+
+[tasks.oci-push]
+description = "Package the local Git checkout as an OCI artifact and push it to the local registry"
+dir = "{{config_root}}"
+run = '''
+REPO_ROOT="$PWD"
+
+REGISTRY_PORT="${REGISTRY_PORT:-5001}"
+# Toolbox runs reach the registry by kind-network name (the CLI exports
+# REGISTRY_HOST=kaipr-registry there); host runs default to localhost.
+REGISTRY_HOST="${REGISTRY_HOST:-localhost}"
+OCI_REPOSITORY="${OCI_REPOSITORY:-kaipr}"
+OCI_TAG="${OCI_TAG:-latest}"
+OCI_URL="oci://${REGISTRY_HOST}:${REGISTRY_PORT}/${OCI_REPOSITORY}:${OCI_TAG}"
+OCI_MGMT_SOURCE_PATH="mgmt/local-host"
+OCI_WORKLOAD_SOURCE_PATH="workload/local-host"
+
+for source_path in "$OCI_MGMT_SOURCE_PATH" "$OCI_WORKLOAD_SOURCE_PATH"; do
+  if [ ! -d "$source_path" ]; then
+    echo "ERROR: OCI source directory does not exist: $source_path" >&2
+    exit 1
+  fi
+done
+
+if ! curl --fail --silent --show-error "http://${REGISTRY_HOST}:${REGISTRY_PORT}/v2/" >/dev/null; then
+  echo "ERROR: local registry is unavailable at ${REGISTRY_HOST}:${REGISTRY_PORT}" >&2
+  echo "       Start it with: scripts/toolbox-run.sh bootstrap local-host" >&2
+  exit 1
+fi
+
+# The wrapper (or raw container caller) supplies all three host-side values.
+# A partial tuple is an error; never mix metadata from different checkouts.
+if [ "${KAIPR_OCI_GIT_SHA+x}${KAIPR_OCI_GIT_REF+x}${KAIPR_OCI_SOURCE_URL+x}" != "" ]; then
+  if [ -z "${KAIPR_OCI_GIT_SHA:-}" ] || [ -z "${KAIPR_OCI_GIT_REF:-}" ] || [ -z "${KAIPR_OCI_SOURCE_URL:-}" ]; then
+    echo "ERROR: supply complete OCI metadata: KAIPR_OCI_GIT_SHA, KAIPR_OCI_GIT_REF, KAIPR_OCI_SOURCE_URL" >&2
+    exit 1
+  fi
+  GIT_SHA="$KAIPR_OCI_GIT_SHA"
+  GIT_REF="$KAIPR_OCI_GIT_REF"
+  SOURCE_URL="$KAIPR_OCI_SOURCE_URL"
+else
+  GIT_SHA=$(git rev-parse HEAD 2>/dev/null) || {
+    echo "ERROR: Git metadata unavailable; forward KAIPR_OCI_GIT_SHA, KAIPR_OCI_GIT_REF, KAIPR_OCI_SOURCE_URL from the host" >&2
+    exit 1
+  }
+  GIT_REF=$(git branch --show-current)
+  GIT_REF="${GIT_REF:-detached}"
+  SOURCE_URL=$(git config --get remote.origin.url || true)
+  SOURCE_URL="${SOURCE_URL:-file://${REPO_ROOT}}"
+fi
+
+ARTIFACT_ROOT=$(mktemp -d "${TMPDIR:-/tmp}/kaipr-oci.XXXXXX")
+cleanup_artifact_root() {
+  rm -rf "$ARTIFACT_ROOT"
+}
+trap cleanup_artifact_root EXIT
+mkdir -p "$ARTIFACT_ROOT/mgmt" "$ARTIFACT_ROOT/workload"
+cp -R "$OCI_MGMT_SOURCE_PATH" "$ARTIFACT_ROOT/mgmt/local-host"
+cp -R "$OCI_WORKLOAD_SOURCE_PATH" "$ARTIFACT_ROOT/workload/local-host"
+
+echo "==> Packaging mgmt/local-host and workload/local-host"
+echo "==> Pushing ${OCI_URL}"
+flux push artifact "$OCI_URL" \
+  --path="$ARTIFACT_ROOT" \
+  --source="$SOURCE_URL" \
+  --revision="${GIT_REF}@sha1:${GIT_SHA}" \
+  --insecure-registry \
+  --reproducible
+'''
+
+[tasks.kubeconfigs]
+description = "Export the local CAPD workload-cluster kubeconfig"
+run = '''
+KUBECONFIG_FILE="${KUBECONFIG_FILE:-local-workload.kubeconfig}"
+clusterctl get kubeconfig local-workload > "$KUBECONFIG_FILE"
+
+# CAPD records the load balancer's container-network IP, which is not routable
+# from macOS. Point the kubeconfig at the port published on localhost instead.
+# Host-only: inside the toolbox (KAIPR_TOOLBOX=1, on the kind network) the
+# recorded endpoint already resolves and 127.0.0.1 would be the container.
+if [ "${KAIPR_TOOLBOX:-0}" != 1 ]; then
+  if [ -n "${CONTAINER_ENGINE:-}" ]; then
+    engine="$CONTAINER_ENGINE"
+  elif command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
+    engine=docker
+  elif command -v podman >/dev/null 2>&1 && podman info >/dev/null 2>&1; then
+    engine=podman
+  else
+    echo "ERROR: no running container engine found" >&2
+    exit 1
+  fi
+  endpoint=$($engine port local-workload-lb 6443/tcp | head -1)
+  port="${endpoint##*:}"
+  case "$port" in
+    ''|*[!0-9]*)
+      echo "ERROR: cannot determine the local-workload API server port" >&2
+      exit 1
+      ;;
+  esac
+  kubectl config set-cluster local-workload \
+    --server="https://127.0.0.1:${port}" \
+    --kubeconfig="$KUBECONFIG_FILE" >/dev/null
+fi
+chmod 600 "$KUBECONFIG_FILE"
+echo "Wrote ${KUBECONFIG_FILE}"
+echo "Use with: KUBECONFIG=${KUBECONFIG_FILE} kubectl get nodes"
+'''
+
+[tasks.podinfo-port-forward]
+description = "Expose workload Podinfo at http://localhost:9898"
+run = '''
+KUBECONFIG_FILE="${KUBECONFIG_FILE:-local-workload.kubeconfig}"
+if [ ! -f "$KUBECONFIG_FILE" ]; then
+  echo "ERROR: workload kubeconfig not found: $KUBECONFIG_FILE" >&2
+  echo "       Create it with: mise -E local-host run kubeconfigs" >&2
+  exit 1
+fi
+
+echo "Podinfo will be available at http://localhost:9898"
+echo "Press Ctrl-C to stop forwarding."
+kubectl --kubeconfig "$KUBECONFIG_FILE" \
+  port-forward --namespace podinfo service/podinfo 9898:9898
+'''

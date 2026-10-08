@@ -1,0 +1,20 @@
+# An LLM token budget on the LLM route: at most N tokens per unit of time
+# per proxy, counted on both input and output. Token counts are only known
+# after a request completes, so the limit applies to subsequent requests
+# (429 when exceeded). This is the reference "cost governance" control from
+# the CDF CI/CD AI SIG's platform-engineering goals.
+apiVersion: agentgateway.dev/v1alpha1
+kind: AgentgatewayPolicy
+metadata:
+  name: vllm-sim-token-budget
+  namespace: ai-platform
+spec:
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: HTTPRoute
+      name: vllm-sim-llm
+  traffic:
+    rateLimit:
+      local:
+        - tokens: 100000
+          unit: Minutes

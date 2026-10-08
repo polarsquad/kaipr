@@ -1,0 +1,263 @@
+# Repository-owned configuration for krops-bootstrap (issue #98).
+#
+# Everything krops-specific the binary needs is declared here; the binary
+# itself is a generic bootstrap engine. Environment variables (REGISTRY_PORT,
+# GIT_REPO_URL, BOOTSTRAP_KUBECONTEXT, ...) keep their precedence over these
+# values at runtime. Locate this file with BOOTSTRAP_CONFIG when not running
+# from the repository root.
+#
+# Environment order matters: error messages list environments in file order
+# to preserve bootstrap.sh's exact wording ('local-host' before 'aws').
+#
+# Profile resolution: the [environments.*] section name is authoritative;
+# KROPS_PROFILE matches it exactly. Each environment's `kind` restates
+# the section name, and the cross-check fails if the two disagree.
+
+[bootstrap]
+default-environment = "aws"
+git-branch = "main"
+kind-cluster = "mgmt"
+kind-context = "kind-mgmt"
+registry-name = "krops-registry"
+flux-namespace = "flux-system"
+github-pat-secret = "flux-github-pat"
+sops-age-secret = "sops-age"
+mgmt-namespace = "default"
+mgmt-context = "krops-mgmt"
+
+[charts]
+# Chart versions installed imperatively before Flux exists. Keep in sync
+# with the HelmReleases/HelmChartProxies in mgmt/<env>/ so Flux adopts the
+# installs without drift; `mise run validate` cross-checks them and Renovate
+# updates both sides together.
+# flux-operator and flux-instance version together upstream, so this one
+# pin serves both chart installs (FLUX_CHART_VERSION in main.rs).
+# renovate: datasource=docker depName=ghcr.io/controlplaneio-fluxcd/charts/flux-operator
+flux-operator = "0.61.0"
+# renovate: datasource=helm registryUrl=https://charts.jetstack.io depName=cert-manager
+cert-manager = "1.21.2"
+# renovate: datasource=helm registryUrl=https://kubernetes-sigs.github.io/cluster-api-operator depName=cluster-api-operator
+capi-operator = "0.29.0"
+
+[teardown]
+# Constants for `krops-bootstrap teardown` (issue #100), mirroring the literal
+# lists in teardown.sh; tests/test-bootstrap-config.py cross-checks them
+# against the Git manifests that define the same names.
+# CloudFormation stack created by `clusterawsadm bootstrap iam`.
+cfn-stack-name = "cluster-api-provider-aws-sigs-k8s-io"
+# Region-independent IAM roles: the per-cluster reader roles created by the
+# management cluster's ACK IAM controller
+# (mgmt/aws/infrastructure/workload-resources/role.yaml).
+global-iam-roles = [
+  "krops-eu-north-1-workload-reader",
+  "krops-eu-west-1-workload-reader",
+]
+# The console reader user created by the management cluster's ACK IAM
+# controller (mgmt/aws/infrastructure/aws-global-iam/reader-user.yaml).
+global-iam-users = ["krops-reader"]
+# S3 bucket pattern (mgmt/aws/infrastructure/workload-resources/bucket.yaml).
+s3-bucket-pattern = "krops-{account_id}-{cluster_name}-data"
+
+[environments.local-host]
+kind = "local-host"
+# Flux syncs the OCI artifact published from the checkout by oci-push.
+sync = "oci"
+sync-path = "mgmt/local-host"
+mgmt-cluster = "local-management"
+mgmt-ready-timeout = "15m"
+infra-provider-namespace = "capd-system"
+infra-provider-name = "docker"
+provider-manifests = [
+  "mgmt/local-host/capi-providers/capi-system/namespace.yaml",
+  "mgmt/local-host/capi-providers/capi-system/providers.yaml",
+  "mgmt/local-host/capi-providers/capd-system/namespace.yaml",
+  "mgmt/local-host/capi-providers/capd-system/provider.yaml",
+  "mgmt/local-host/capi-providers/caaph-system/namespace.yaml",
+  "mgmt/local-host/capi-providers/caaph-system/provider.yaml",
+]
+
+[environments.local-host.teardown]
+# CAPD workload clusters deleted before the management cluster; their
+# Kustomization is suspended first so Flux does not recreate them.
+capi-workloads = ["local-workload"]
+# The self-managed management cluster is removed at the container level
+# (a cluster cannot delete its own Cluster object cleanly): its node/lb
+# containers share this prefix.
+mgmt-container-prefix = "local-management"
+
+[environments.aws]
+kind = "aws"
+# Flux syncs the GitHub repository (GitRepository + flux-github-pat).
+sync = "github"
+sync-path = "mgmt/aws"
+mgmt-cluster = "eu-north-1-management"
+mgmt-ready-timeout = "40m"
+infra-provider-namespace = "capa-system"
+infra-provider-name = "aws"
+provider-manifests = [
+  "mgmt/aws/capi-providers/capi-system/namespace.yaml",
+  "mgmt/aws/capi-providers/capi-system/providers.yaml",
+  "mgmt/aws/capi-providers/capa-system/namespace.yaml",
+  "mgmt/aws/capi-providers/capa-system/providers.yaml",
+  "mgmt/aws/capi-providers/caaph-system/namespace.yaml",
+  "mgmt/aws/capi-providers/caaph-system/addon-provider.yaml",
+]
+
+# Objects clusterctl move should carry over but that are re-applied from
+# the checkout if they are missing in the target after the move.
+[[environments.aws.move-fallbacks]]
+resource = "awsclustercontrolleridentities.infrastructure.cluster.x-k8s.io"
+name = "default"
+manifest = "mgmt/aws/infrastructure/aws-identity/identity.yaml"
+
+[environments.aws.teardown]
+# The self-managed management cluster (post-pivot) is removed through the
+# AWS orphan sweep, never via its own Cluster object: deleting it from
+# itself kills the CAPA controller mid-delete. Its names join the sweep.
+mgmt-eks-cluster-name = "default_eu-north-1-management-control-plane"
+mgmt-iam-role-prefix = "eu-north-1-management"
+# Workload clusters the orphan sweep visits (order: file order = sweep
+# order). Names mirror the Kustomization namePrefixes and the cluster-vars
+# substitutions in mgmt/aws/addons/flux-apps/flux-instance.yaml.
+[[environments.aws.teardown.aws-workloads]]
+region = "eu-north-1"
+cluster-name = "eu-north-1-workload"
+eks-cluster-name = "default_eu-north-1-workload-control-plane"
+rds-instance = "krops-eu-north-1-workload-db"
+
+[[environments.aws.teardown.aws-workloads]]
+region = "eu-west-1"
+cluster-name = "eu-west-1-workload"
+eks-cluster-name = "default_eu-west-1-workload-control-plane"
+rds-instance = "krops-eu-west-1-workload-db"
+
+[environments.local-talos]
+kind = "local-talos"
+# Flux syncs the GitHub repository, like aws: a physical machine cannot
+# reach the laptop's OCI registry (issue #105 decision). Requires a GitHub
+# PAT (flux-github-pat), unlike local-host.
+sync = "github"
+sync-path = "mgmt/local-talos"
+mgmt-cluster = "local-talos-management"
+# PXE install + first Talos boot takes longer than kind/EKS provisioning.
+mgmt-ready-timeout = "30m"
+# The Tinkerbell infrastructure provider (well-known clusterctl name
+# "tinkerbell-tinkerbell", see capi-providers/capt-system/provider.yaml).
+infra-provider-namespace = "capt-system"
+infra-provider-name = "tinkerbell-tinkerbell"
+provider-manifests = [
+  "mgmt/local-talos/capi-providers/capi-system/namespace.yaml",
+  "mgmt/local-talos/capi-providers/capi-system/providers.yaml",
+  "mgmt/local-talos/capi-providers/cabpt-system/namespace.yaml",
+  "mgmt/local-talos/capi-providers/cabpt-system/provider.yaml",
+  "mgmt/local-talos/capi-providers/cacppt-system/namespace.yaml",
+  "mgmt/local-talos/capi-providers/cacppt-system/provider.yaml",
+  "mgmt/local-talos/capi-providers/capt-system/namespace.yaml",
+  "mgmt/local-talos/capi-providers/capt-system/provider.yaml",
+]
+
+[environments.local-talos.teardown]
+# local-talos owns no workload clusters (scope fence: management-only).
+capi-workloads = []
+# Bare-metal semantics (issue #105 scope item 8): teardown deletes the
+# CAPI objects so CAPT releases the Tinkerbell Hardware back to the pool,
+# but the machine itself is never wiped or reclaimed: it is left running
+# Talos for the operator to re-use or PXE-boot fresh. No container-prefix
+# sweep (that is the local-host CAPD path) and no AWS orphan sweep.
+hardware-release = true
+
+[environments.azure]
+kind = "azure"
+# Flux syncs the GitHub repository (GitRepository + flux-github-pat), like aws.
+sync = "github"
+sync-path = "mgmt/azure"
+mgmt-cluster = "swedencentral-management"
+mgmt-ready-timeout = "40m"
+infra-provider-namespace = "capz-system"
+infra-provider-name = "azure"
+provider-manifests = [
+  "mgmt/azure/capi-providers/capi-system/namespace.yaml",
+  "mgmt/azure/capi-providers/capi-system/providers.yaml",
+  "mgmt/azure/capi-providers/capz-system/namespace.yaml",
+  "mgmt/azure/capi-providers/capz-system/capz-variables.yaml",
+  "mgmt/azure/capi-providers/capz-system/providers.yaml",
+  "mgmt/azure/capi-providers/caaph-system/namespace.yaml",
+  "mgmt/azure/capi-providers/caaph-system/addon-provider.yaml",
+]
+# Post-kind hook (issue #236): Arc-connect the kind cluster and federate
+# CAPZ/ASO via workload identity before Flux installs anything.
+post-kind-create-task = "arc-federate"
+# Plain manifests applied to the pivot target before `clusterctl move`
+# (issue #236): the secret-free aso-credentials Secret that the moved ASO
+# resources reference by name (replaces pivot-sops-secrets).
+pivot-manifests = [
+  "mgmt/azure/infrastructure/azure-identity/aso-credentials.yaml",
+]
+
+[environments.azure.teardown]
+# Teardown is manual until the live acceptance run (issue #71 follow-up)
+# establishes the orphan sweep for AKS/ASO. The binary refuses to run and
+# prints this text.
+manual = """Azure teardown is not automated yet.
+  1. Suspend Flux: flux suspend kustomization --all
+  2. Delete the workload Cluster objects and wait for CAPZ to remove AKS
+  3. Delete the resource groups: az group delete --yes --name <rg>
+     (krops-swedencentral-workload-data, swedencentral-workload,
+      swedencentral-management, krops-shared, and every MC_* node group)
+  4. Delete the Arc resource: az connectedk8s delete --name krops-azure-bootstrap --resource-group krops-shared
+(the kind-issuer FICs krops-capz-kind-capz / krops-capz-kind-aso on the krops-capz identity may also be deleted; they are upserted on the next bootstrap)"""
+
+[environments.gcp]
+kind = "gcp"
+# Flux syncs the GitHub repository (GitRepository + flux-github-pat), like aws.
+sync = "github"
+sync-path = "mgmt/gcp"
+mgmt-cluster = "europe-north1-management"
+mgmt-ready-timeout = "40m"
+infra-provider-namespace = "capg-system"
+infra-provider-name = "gcp"
+provider-manifests = [
+  "mgmt/gcp/capi-providers/capi-system/namespace.yaml",
+  "mgmt/gcp/capi-providers/capi-system/providers.yaml",
+  "mgmt/gcp/capi-providers/capg-system/namespace.yaml",
+  "mgmt/gcp/capi-providers/capg-system/capg-variables.yaml",
+  "mgmt/gcp/capi-providers/capg-system/providers.yaml",
+  "mgmt/gcp/capi-providers/caaph-system/namespace.yaml",
+  "mgmt/gcp/capi-providers/caaph-system/addon-provider.yaml",
+]
+# Post-kind hook (issue #72): register the kind cluster as an OIDC provider of
+# the krops workload identity pool before Flux installs anything.
+post-kind-create-task = "wif-federate"
+# Plain manifests applied to the pivot target before `clusterctl move`: the
+# secret-free WIF credential files CAPG and KCC reference by name. The
+# provider inside them is `kind` on the source (gcp-wif ConfigMap) and must be
+# `mgmt` in the target, hence the override below. The capg-wif-credentials
+# Secret is NOT in provider-manifests (it needs ${GCP_*} substitution) and the
+# cnrm-system namespace file is here so the kcc Secret has a home before Flux
+# runs in the target.
+pivot-manifests = [
+  "mgmt/gcp/capi-providers/capg-system/capg-wif-credentials.yaml",
+  "mgmt/gcp/infrastructure/kcc/namespace.yaml",
+  "mgmt/gcp/infrastructure/kcc/kcc-wif-credentials.yaml",
+]
+
+# The flux-system ConfigMaps merge on the source is unordered across
+# ConfigMaps, so GCP_WIF_PROVIDER could be `kind` (gcp-wif) or unset
+# (gcp-vars) at pivot time; force the post-pivot value here.
+[environments.gcp.pivot-manifest-vars]
+GCP_WIF_PROVIDER = "mgmt"
+
+[environments.gcp.teardown]
+# Teardown is manual until the live acceptance run (issue #72 follow-up)
+# establishes the orphan set. The binary refuses to run and prints this text.
+manual = """GCP teardown is not automated yet (issue #72 follow-up).
+  1. Suspend Flux: flux suspend kustomization --all
+  2. Delete the workload Cluster objects and wait for CAPG to remove the GKE cluster
+  3. Delete the management GKE cluster: gcloud container clusters delete krops-europe-north1-management --zone europe-north1-a
+  4. Delete Cloud SQL, the bucket and the PSA range KCC created:
+     gcloud sql instances delete krops-europe-north1-workload-db
+     gcloud storage rm -r gs://krops-<project-number>-europe-north1-workload-data
+     gcloud services vpc-peerings delete --network krops-europe-north1-workload
+     gcloud compute addresses delete krops-europe-north1-workload-psa --global
+  5. Delete the VPCs and firewall rules CAPG created: gcloud compute networks delete krops-europe-north1-{management,workload}
+(the krops pool, its providers and the three service accounts may stay; they are re-adopted on the next bootstrap)"""

@@ -1,0 +1,65 @@
+# Repository-owned configuration for kaipr-bootstrap (krops issue #98).
+#
+# Everything repo-specific the binary needs is declared here; the binary
+# itself is a generic bootstrap engine. Environment variables (REGISTRY_PORT,
+# GIT_REPO_URL, BOOTSTRAP_KUBECONTEXT, ...) keep their precedence over these
+# values at runtime. Locate this file with BOOTSTRAP_CONFIG when not running
+# from the repository root.
+#
+# Profile resolution: the [environments.*] section name is authoritative;
+# KAIPR_PROFILE matches it exactly. Each environment's `kind` restates the
+# section name, and the cross-check fails if the two disagree.
+#
+# This reference ships a single environment, local-host: a kind bootstrap
+# cluster that CAPI/CAPD pivots into a self-managed management cluster, with
+# the AI platform reconciled onto the workload cluster from the OCI artifact
+# the local registry serves. No cloud provider and no air-gap bundle.
+
+[bootstrap]
+default-environment = "local-host"
+git-branch = "main"
+kind-cluster = "mgmt"
+kind-context = "kind-mgmt"
+registry-name = "kaipr-registry"
+flux-namespace = "flux-system"
+github-pat-secret = "flux-github-pat"
+sops-age-secret = "sops-age"
+mgmt-namespace = "default"
+mgmt-context = "kaipr-mgmt"
+
+[charts]
+# Chart versions installed imperatively before Flux exists. Keep in sync
+# with the HelmReleases/HelmChartProxies in mgmt/local-host/ so Flux adopts
+# the installs without drift; `mise run validate` cross-checks them.
+# flux-operator and flux-instance version together upstream, so this one pin
+# serves both chart installs.
+flux-operator = "0.61.0"
+cert-manager = "1.21.2"
+capi-operator = "0.29.0"
+
+[environments.local-host]
+kind = "local-host"
+# Flux syncs the OCI artifact published from the checkout by oci-push.
+sync = "oci"
+sync-path = "mgmt/local-host"
+mgmt-cluster = "local-management"
+mgmt-ready-timeout = "15m"
+infra-provider-namespace = "capd-system"
+infra-provider-name = "docker"
+provider-manifests = [
+  "mgmt/local-host/capi-providers/capi-system/namespace.yaml",
+  "mgmt/local-host/capi-providers/capi-system/providers.yaml",
+  "mgmt/local-host/capi-providers/capd-system/namespace.yaml",
+  "mgmt/local-host/capi-providers/capd-system/provider.yaml",
+  "mgmt/local-host/capi-providers/caaph-system/namespace.yaml",
+  "mgmt/local-host/capi-providers/caaph-system/provider.yaml",
+]
+
+[environments.local-host.teardown]
+# CAPD workload clusters deleted before the management cluster; their
+# Kustomization is suspended first so Flux does not recreate them.
+capi-workloads = ["local-workload"]
+# The self-managed management cluster is removed at the container level
+# (a cluster cannot delete its own Cluster object cleanly): its node/lb
+# containers share this prefix.
+mgmt-container-prefix = "local-management"

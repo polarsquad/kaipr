@@ -1,0 +1,24 @@
+# An LLM-aware backend that wraps the InferencePool the router chart
+# created. Routing an HTTPRoute to this (instead of straight to the
+# InferencePool) is what lets agentgateway parse the LLM request/response
+# and apply LLM features: token counting, token budgets, guardrails, and LLM
+# observability.
+apiVersion: agentgateway.dev/v1alpha1
+kind: AgentgatewayBackend
+metadata:
+  name: vllm-sim
+  namespace: ai-platform
+spec:
+  ai:
+    provider:
+      custom:
+        backendRef:
+          group: inference.networking.k8s.io
+          kind: InferencePool
+          name: vllm-sim
+        model: Qwen/Qwen3-32B
+        formats:
+          - type: Completions
+            path: /v1/completions
+          - type: Completions
+            path: /v1/chat/completions

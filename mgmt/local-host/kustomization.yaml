@@ -1,0 +1,10 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+# Root of the local-host OCI artifact. Each entry creates Flux Kustomizations
+# which reconcile the corresponding component from this OCI source.
+resources:
+  - infrastructure/flux-ks.yaml
+  - capi-providers/flux-ks.yaml
+  - clusters/flux-ks.yaml
+  - addons/cni/flux-ks.yaml
+  - addons/flux-apps/flux-ks.yaml

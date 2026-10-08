@@ -1,0 +1,120 @@
+# yaml-language-server: $schema=https://json.schemastore.org/github-workflow.json
+name: bootstrap-rs
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "bootstrap-rs/**"
+      - "mise.toml"
+      - "mise.aws.toml"
+      - "mise.local-host.toml"
+      - ".dockerignore"
+      - ".github/workflows/bootstrap-rs.yml"
+  pull_request:
+    paths:
+      - "bootstrap-rs/**"
+      - "mise.toml"
+      - "mise.aws.toml"
+      - "mise.local-host.toml"
+      - ".dockerignore"
+      - ".github/workflows/bootstrap-rs.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: bootstrap-rs-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: Build, lint, and test
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: bootstrap-rs
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7.0.1
+
+      # rustup respects bootstrap-rs/rust-toolchain.toml, so the pinned
+      # toolchain (channel, clippy, rustfmt) installs on first cargo use.
+      - name: Install pinned toolchain
+        run: rustup show active-toolchain
+
+      - name: Cache cargo
+        uses: actions/cache@v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            bootstrap-rs/target
+          key: bootstrap-rs-${{ runner.os }}-${{ hashFiles('bootstrap-rs/Cargo.lock', 'bootstrap-rs/rust-toolchain.toml') }}
+
+      - name: Format check
+        run: cargo fmt --check
+
+      - name: Clippy
+        run: cargo clippy --locked --all-targets -- -D warnings
+
+      - name: Build
+        run: cargo build --locked
+
+      - name: Test
+        run: cargo test --locked
+
+  docker:
+    name: Docker image build
+    runs-on: ubuntu-26.04-arm
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7.0.1
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4.4.1
+
+      # Rot protection for the toolbox image (issue #104): the image
+      # cannot silently break between releases. Loads only; the release
+      # workflow (toolbox-release.yml) pushes.
+      - name: Build the toolbox image (load only)
+        uses: docker/build-push-action@v7.4.0
+        with:
+          context: .
+          file: bootstrap-rs/Dockerfile
+          platforms: linux/arm64
+          push: false
+          load: true
+          tags: kaipr-toolbox:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Smoke the image (binary, tools, and helper tasks on PATH)
+        run: |
+          # /workspace has no bootstrap.toml in CI (the repo is mounted
+          # there at runtime); --help must be probed from the checkout.
+          # The helper tasks (#423) run as `--entrypoint mise` against the
+          # mounted checkout: every tool they call must be on PATH and mise
+          # must list the tasks from /workspace without installing anything
+          # (MISE_AUTO_INSTALL=0 is what the documented runs pass).
+          docker run --rm --entrypoint sh -v "$PWD:/workspace:ro" \
+            -w /workspace -e MISE_AUTO_INSTALL=0 kaipr-toolbox:ci -c '
+            # The image must disable the AWS CLI pager (#496): the toolbox
+            # ships no `less`, so any paged output would fail. An empty value
+            # is set, not unset.
+            [ -z "${AWS_PAGER+x}" ] && { echo "::error::AWS_PAGER is unset in the toolbox image"; exit 1; }
+            [ -n "$AWS_PAGER" ] && { echo "::error::AWS_PAGER is not empty in the toolbox image"; exit 1; }
+            for t in kind kubectl helm clusterctl flux sops age age-keygen aws clusterawsadm \
+                     az gcloud gke-gcloud-auth-plugin docker xargs git curl mise uv python3 bash; do
+              command -v "$t" >/dev/null || { echo "::error::$t missing on PATH"; exit 1; }
+            done
+            kaipr-bootstrap --help >/dev/null
+            for task in sops-keygen sops-encrypt sops-decrypt sops-updatekeys mgmt-kubeconfig aws-credentials validate; do
+              mise tasks ls 2>/dev/null | grep -q "^$task " || { echo "::error::mise task $task not visible from /workspace"; exit 1; }
+            done
+            for env in aws azure gcp local-host local-talos; do
+              mise -E "$env" tasks ls 2>/dev/null | grep -q "^kubeconfigs " || { echo "::error::mise -E $env kubeconfigs task not visible"; exit 1; }
+            done
+            mise -E aws which clusterawsadm >/dev/null || { echo "::error::mise -E aws cannot resolve clusterawsadm without installing"; exit 1; }'

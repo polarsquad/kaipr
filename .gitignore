@@ -1,0 +1,35 @@
+.wip/*
+.setup/*
+.env
+.aws/
+.copier-answers.yml
+.DS_Store
+
+# Secrets — never commit these
+*.pem
+
+# SOPS age PRIVATE key — the public key in .sops.yaml is safe to commit
+*.agekey
+age.agekey
+
+# Generated local Cluster API workload kubeconfig
+local-workload.kubeconfig
+# Toolbox container kubeconfig state (scripts/toolbox-run.sh)
+.kube/
+# gcloud state shared by the host and the toolbox (mise.gcp.toml CLOUDSDK_CONFIG)
+.gcloud/
+airgap/archives/
+airgap/rendered/
+airgap/sbom/
+airgap/config-artifact/
+airgap/*.tar.zst
+
+# Hermes agent workspace (local plans, never part of the repo)
+.hermes/
+__pycache__/
+build/
+.venv/
+.pytest_cache/
+
+# Personal Claude Code overrides (permissions, etc.), not team-shared config
+.claude/settings.local.json

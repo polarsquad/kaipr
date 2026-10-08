@@ -1,0 +1,678 @@
+{
+  // Renovate config for kaipr (issue #74).
+  // Runs via the hosted Renovate GitHub App (issue #90).
+  // Version sources covered:
+  //   - Flux / Helm / Kubernetes manifests under mgmt/ and workload/
+  //   - GitHub Actions workflow action pins (.github/workflows/)
+  //   - mise tool pins (explicit per-tool custom managers below; the native
+  //     mise manager is disabled so dep resolution is deterministic)
+  //   - clusterctl operator provider manifests under mgmt/*/capi-providers/
+  //   - kind node images (cluster classes, airgap scripts, image inventory)
+  //   - airgap image inventory and zarf.yaml image lists
+  //   - annotated chart pins in bootstrap.toml (consumed by the Rust binary)
+  //   - imperative Helm chart pins in pivot.sh
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:recommended",
+    ":dependencyDashboard",
+    ":semanticCommits",
+    ":disableRateLimiting"
+  ],
+  "schedule": ["after 6am on monday"],
+  "timezone": "Europe/Helsinki",
+  "rangeStrategy": "pin",
+  "separateMajorMinor": false,
+  "commitBody": "Refs: #74",
+  "suppressNotifications": ["prEditedNotification", "prIgnoreNotification"],
+  "rebaseWhen": "conflicted",
+  "ignorePaths": [
+    "airgap/rendered/**",
+    "airgap/archives/**",
+    "airgap/sbom/**",
+    "airgap/manifests/**"
+  ],
+  "flux": {
+    "managerFilePatterns": ["/(^|/)(mgmt|workload)/.+\\.ya?ml$/"]
+  },
+  "kubernetes": {
+    "managerFilePatterns": ["/(^|/)(mgmt|workload)/.+\\.ya?ml$/"]
+  },
+  "helm-values": {
+    "managerFilePatterns": ["/(^|/)(mgmt|workload)/.+\\.ya?ml$/"]
+  },
+  // Explicit per-tool custom managers replace the native mise manager so each
+  // tool resolves against the exact upstream GitHub repo we install from.
+  "mise": {
+    "enabled": false
+  },
+  "customManagers": [
+    // ── mise tool pins ────────────────────────────────────────────────────
+    {
+      "customType": "regex",
+      "description": "mise: go toolchain pin",
+      "managerFilePatterns": ["/(^|/)mise\\.toml$/"],
+      "matchStrings": ["go = \"(?<currentValue>[^\"]+)\""],
+      "depNameTemplate": "golang",
+      "datasourceTemplate": "golang-version",
+      "versioningTemplate": "loose",
+      "autoReplaceStringTemplate": "go = \"{{newValue}}\""
+    },
+    {
+      "customType": "regex",
+      "description": "mise: python toolchain pin",
+      "managerFilePatterns": ["/(^|/)mise\\.toml$/"],
+      "matchStrings": ["python = \"(?<currentValue>[^\"]+)\""],
+      "depNameTemplate": "python/cpython",
+      "datasourceTemplate": "github-tags",
+      "extractVersionTemplate": "^v(?<version>.+)",
+      "autoReplaceStringTemplate": "python = \"{{newValue}}\""
+    },
+    {
+      "customType": "regex",
+      "description": "mise: uv pin (docs site build)",
+      "managerFilePatterns": ["/(^|/)mise\\.toml$/"],
+      "matchStrings": ["uv = \"(?<currentValue>[^\"]+)\""],
+      "depNameTemplate": "astral-sh/uv",
+      "datasourceTemplate": "github-releases",
+      "autoReplaceStringTemplate": "uv = \"{{newValue}}\""
+    },
+    {
+      "customType": "regex",
+      "description": "mise: kubectl version pin",
+      "managerFilePatterns": ["/(^|/)mise\\.toml$/"],
+      "matchStrings": ["kubectl = \"(?<currentValue>[^\"]+)\""],
+      "depNameTemplate": "kubernetes/kubernetes",
+      "datasourceTemplate": "github-releases",
+      "extractVersionTemplate": "^v(?<version>.+)",
+      "autoReplaceStringTemplate": "kubectl = \"{{newValue}}\""
+    },
+    {
+      "customType": "regex",
+      "description": "mise: kind version pin",
+      "managerFilePatterns": ["/(^|/)mise\\.toml$/"],
+      "matchStrings": ["kind = \"(?<currentValue>[^\"]+)\""],
+      "depNameTemplate": "kubernetes-sigs/kind",
+      "datasourceTemplate": "github-releases",
+      "extractVersionTemplate": "^v(?<version>.+)",
+      "autoReplaceStringTemplate": "kind = \"{{newValue}}\""
+    },
+    {
+      "customType": "regex",
+      "description": "mise: helm version pin",
+      "managerFilePatterns": ["/(^|/)mise\\.toml$/"],
+      "matchStrings": ["helm = \"(?<currentValue>[^\"]+)\""],
+      "depNameTemplate": "helm/helm",
+      "datasourceTemplate": "github-releases",
+      "extractVersionTemplate": "^v(?<version>.+)",
+      "autoReplaceStringTemplate": "helm = \"{{newValue}}\""
+    },
+    {
+      "customType": "regex",
+      "description": "mise: clusterctl version pin",
+      "managerFilePatterns": ["/(^|/)mise\\.toml$/"],
+      "matchStrings": ["clusterctl = \"(?<currentValue>[^\"]+)\""],
+      "depNameTemplate": "kubernetes-sigs/cluster-api",
+      "datasourceTemplate": "github-releases",
+      "extractVersionTemplate": "^v(?<version>.+)",
+      "autoReplaceStringTemplate": "clusterctl = \"{{newValue}}\""
+    },
+    {
+      "customType": "regex",
+      "description": "mise: flux2 CLI pin (floating latest tag)",
+      "managerFilePatterns": ["/(^|/)mise\\.toml$/"],
+      "matchStrings": ["flux2 = \"(?<currentValue>[^\"]+)\""],
+      "depNameTemplate": "fluxcd/flux2",
+      "datasourceTemplate": "github-releases",
+      "extractVersionTemplate": "^v(?<version>.+)",
+      "autoReplaceStringTemplate": "flux2 = \"{{newValue}}\""
+    },
+    {
+      "customType": "regex",
+      "description": "mise: sops pin (floating latest tag)",
+      "managerFilePatterns": ["/(^|/)mise\\.toml$/"],
+      "matchStrings": ["sops = \"(?<currentValue>[^\"]+)\""],
+      "depNameTemplate": "getsops/sops",
+      "datasourceTemplate": "github-releases",
+      "extractVersionTemplate": "^v(?<version>.+)",
+      "autoReplaceStringTemplate": "sops = \"{{newValue}}\""
+    },
+    {
+      "customType": "regex",
+      "description": "mise: age pin (floating latest tag)",
+      "managerFilePatterns": ["/(^|/)mise\\.toml$/"],
+      "matchStrings": ["age = \"(?<currentValue>[^\"]+)\""],
+      "depNameTemplate": "FiloSottile/age",
+      "datasourceTemplate": "github-releases",
+      "extractVersionTemplate": "^v(?<version>.+)",
+      "autoReplaceStringTemplate": "age = \"{{newValue}}\""
+    },
+    {
+      "customType": "regex",
+      "description": "mise: zarf CLI pin (github backend)",
+      "managerFilePatterns": ["/(^|/)mise\\.toml$/"],
+      "matchStrings": ["\\[tools\\.\"github:zarf-dev/zarf\"\\]\\nversion = \"(?<currentValue>[^\"]+)\""],
+      "depNameTemplate": "zarf-dev/zarf",
+      "datasourceTemplate": "github-releases",
+      "extractVersionTemplate": "^v(?<version>.+)"
+    },
+    {
+      "customType": "regex",
+      "description": "mise: min_version self-pin",
+      "managerFilePatterns": ["/(^|/)mise\\.toml$/"],
+      "matchStrings": ["min_version = \"(?<currentValue>[^\"]+)\""],
+      "depNameTemplate": "jdx/mise",
+      "datasourceTemplate": "github-releases",
+      "extractVersionTemplate": "^v(?<version>.+)",
+      "autoReplaceStringTemplate": "min_version = \"{{newValue}}\""
+    },
+    {
+      "customType": "regex",
+      "description": "toolbox image: mise CLI pin (issue #104)",
+      "managerFilePatterns": ["bootstrap-rs/Dockerfile"],
+      "matchStrings": ["ARG MISE_VERSION=(?<currentValue>[0-9][^\\s]*)"],
+      "depNameTemplate": "jdx/mise",
+      "datasourceTemplate": "github-releases",
+      "extractVersionTemplate": "^v(?<version>.+)",
+      "autoReplaceStringTemplate": "ARG MISE_VERSION={{newValue}}"
+    },
+    {
+      "customType": "regex",
+      "description": "toolbox image: podman remote client pin (issue #104)",
+      "managerFilePatterns": ["bootstrap-rs/Dockerfile"],
+      "matchStrings": ["ARG PODMAN_VERSION=(?<currentValue>[0-9][^\\s]*)"],
+      "depNameTemplate": "containers/podman",
+      "datasourceTemplate": "github-releases",
+      "extractVersionTemplate": "^v(?<version>.+)",
+      "autoReplaceStringTemplate": "ARG PODMAN_VERSION={{newValue}}"
+    },
+    {
+      "customType": "regex",
+      "description": "mise: aws-cli pin (floating latest tag)",
+      "managerFilePatterns": ["/(^|/)mise\\.aws\\.toml$/"],
+      "matchStrings": ["aws-cli = \"(?<currentValue>[^\"]+)\""],
+      "depNameTemplate": "aws/aws-cli",
+      "datasourceTemplate": "github-releases",
+      "extractVersionTemplate": "^v(?<version>.+)",
+      "autoReplaceStringTemplate": "aws-cli = \"{{newValue}}\""
+    },
+    {
+      "customType": "regex",
+      "description": "mise: clusterawsadm pin (inline table form)",
+      "managerFilePatterns": ["/(^|/)mise\\.aws\\.toml$/"],
+      "matchStrings": ["clusterawsadm = \\{ version = \"(?<currentValue>[^\"]+)\""],
+      "depNameTemplate": "kubernetes-sigs/cluster-api-provider-aws",
+      "datasourceTemplate": "github-releases",
+      "extractVersionTemplate": "^v(?<version>.+)",
+      "autoReplaceStringTemplate": "clusterawsadm = { version = \"{{newValue}}\""
+    },
+    {
+      "customType": "regex",
+      "description": "mise: talosctl pin (local-talos environment layer, issue #105)",
+      "managerFilePatterns": ["/(^|/)mise\\.local-talos\\.toml$/"],
+      "matchStrings": ["talosctl = \"(?<currentValue>[^\"]+)\""],
+      "depNameTemplate": "siderolabs/talos",
+      "datasourceTemplate": "github-releases",
+      "extractVersionTemplate": "^v(?<version>.+)",
+      "autoReplaceStringTemplate": "talosctl = \"{{newValue}}\""
+    },
+    {
+      "customType": "regex",
+      "description": "mise: azure-cli pin (pipx backend, azure environment layer, issue #71)",
+      "managerFilePatterns": ["/(^|/)mise\\.azure\\.toml$/"],
+      "matchStrings": ["\"pipx:azure-cli\" = \"(?<currentValue>[^\"]+)\""],
+      "depNameTemplate": "azure-cli",
+      "datasourceTemplate": "pypi",
+      "autoReplaceStringTemplate": "\"pipx:azure-cli\" = \"{{newValue}}\""
+    },
+    {
+      "customType": "regex",
+      "description": "mise: gcloud pin (gcp environment layer, issue #72); the gcr.io google-cloud-cli image tags mirror the SDK releases",
+      "managerFilePatterns": ["/(^|/)mise\\.gcp\\.toml$/"],
+      "matchStrings": ["gcloud = \"(?<currentValue>[^\"]+)\""],
+      "depNameTemplate": "gcr.io/google.com/cloudsdktool/google-cloud-cli",
+      "datasourceTemplate": "docker",
+      "versioningTemplate": "semver",
+      "autoReplaceStringTemplate": "gcloud = \"{{newValue}}\""
+    },
+    // ── bootstrap.toml chart pins (annotation-driven) ─────────────────────
+    // Datasource and depName live in `# renovate:` comments next to the
+    // chart pins in bootstrap.toml (consumed by the Rust binary since the
+    // #98 externalization); this one manager covers every annotated pin
+    // without per-dependency configuration.
+    {
+      "customType": "regex",
+      "description": "Annotated chart pins in bootstrap.toml",
+      "managerFilePatterns": ["/(^|/)bootstrap\\.toml$/"],
+      "matchStrings": [
+        "# renovate: datasource=(?<datasource>[a-z0-9-]+)(?: registryUrl=(?<registryUrl>\\S+))? depName=(?<depName>\\S+)(?: versioning=(?<versioning>[a-z0-9-]+))?\\n[a-zA-Z0-9_-]+ = \\\"(?<currentValue>[^\\\"]+)\\\""
+      ]
+    },
+    {
+      "customType": "regex",
+      "description": "Annotated version pins in local-talos manifests (#157)",
+      "managerFilePatterns": ["/(^|/)mgmt/local-talos/.+\\.ya?ml$/"],
+      "matchStrings": [
+        "# renovate: datasource=(?<datasource>[a-z0-9-]+) depName=(?<depName>\\S+)\\n\\s{2,}version: \\\"v(?<currentValue>[^\\\"]+)\\\""
+      ],
+      "extractVersionTemplate": "^v(?<version>.+)",
+      "autoReplaceStringTemplate": "# renovate: datasource={{{datasource}}} depName={{{depName}}}\n  version: \"v{{{newValue}}}\""
+    },
+    {
+      "customType": "regex",
+      "description": "local-talos talosVersion machine-config contract pin (#157)",
+      "managerFilePatterns": ["/(^|/)mgmt/local-talos/clusters/management/cluster\\.yaml$/"],
+      "matchStrings": [
+        "# renovate: datasource=(?<datasource>[a-z0-9-]+) depName=(?<depName>siderolabs/talos)\\n\\s+talosVersion: v(?<currentValue>[0-9]+\\.[0-9]+)"
+      ],
+      "extractVersionTemplate": "^v(?<version>\\d+\\.\\d+)",
+      "versioningTemplate": "loose",
+      "autoReplaceStringTemplate": "# renovate: datasource={{{datasource}}} depName={{{depName}}}\n      talosVersion: v{{{newValue}}}"
+    },
+    {
+      "customType": "regex",
+      "description": "pivot.sh imperative Helm chart pins",
+      "managerFilePatterns": ["/(^|/)pivot\\.sh$/"],
+      "matchStrings": [
+        "CERT_MANAGER_VERSION=\"(?<currentValue>[^\"]+)\""
+      ],
+      "depNameTemplate": "cert-manager",
+      "datasourceTemplate": "helm",
+      "autoReplaceStringTemplate": "CERT_MANAGER_VERSION=\"{{newValue}}\""
+    },
+    {
+      "customType": "regex",
+      "description": "pivot.sh imperative Helm chart pins",
+      "managerFilePatterns": ["/(^|/)pivot\\.sh$/"],
+      "matchStrings": [
+        "CAPI_OPERATOR_VERSION=\"(?<currentValue>[^\"]+)\""
+      ],
+      "depNameTemplate": "cluster-api-operator",
+      "datasourceTemplate": "helm",
+      "autoReplaceStringTemplate": "CAPI_OPERATOR_VERSION=\"{{newValue}}\""
+    },
+    // ── CI Renovate CLI pin ──────────────────────────────────────────────
+    {
+      "customType": "regex",
+      "description": "Renovate CLI version used by CI digest-pinning and chart-pin tests",
+      "managerFilePatterns": ["/(^|/)\\.github/workflows/validate\\.yml$/"],
+      "matchStrings": ["renovate@(?<currentValue>[0-9][^\\s]*)"],
+      "depNameTemplate": "renovate",
+      "datasourceTemplate": "npm"
+    },
+    // ── clusterctl operator provider manifests ───────────────────────────
+    {
+      "customType": "regex",
+      "description": "CAPI core, kubeadm, and CAPD provider versions (aws, local-host, local-talos)",
+      "managerFilePatterns": [
+        "/(^|/)mgmt/(aws|azure|gcp|local-host|local-talos)/capi-providers/(capi-system|capd-system)/.+\\.ya?ml$/"
+      ],
+      "matchStrings": ["\\s{2}version: \"v(?<currentValue>[^\"]+)\""],
+      "depNameTemplate": "kubernetes-sigs/cluster-api",
+      "datasourceTemplate": "github-releases",
+      "extractVersionTemplate": "^v(?<version>.+)",
+      "autoReplaceStringTemplate": "  version: \"v{{newValue}}\""
+    },
+    {
+      "customType": "regex",
+      "description": "CAPA (AWS infrastructure) provider version",
+      "managerFilePatterns": [
+        "/(^|/)mgmt/aws/capi-providers/capa-system/.+\\.ya?ml$/"
+      ],
+      "matchStrings": ["\\s{2}version: \"v(?<currentValue>[^\"]+)\""],
+      "depNameTemplate": "kubernetes-sigs/cluster-api-provider-aws",
+      "datasourceTemplate": "github-releases",
+      "extractVersionTemplate": "^v(?<version>.+)",
+      "autoReplaceStringTemplate": "  version: \"v{{newValue}}\""
+    },
+    {
+      "customType": "regex",
+      "description": "CAPZ (Azure infrastructure) provider version (issue #71)",
+      "managerFilePatterns": [
+        "/(^|/)mgmt/azure/capi-providers/capz-system/.+\\.ya?ml$/"
+      ],
+      "matchStrings": ["\\s{2}version: \"v(?<currentValue>[^\"]+)\""],
+      "depNameTemplate": "kubernetes-sigs/cluster-api-provider-azure",
+      "datasourceTemplate": "github-releases",
+      "extractVersionTemplate": "^v(?<version>.+)",
+      "autoReplaceStringTemplate": "  version: \"v{{newValue}}\""
+    },
+    {
+      "customType": "regex",
+      "description": "CAPG (GCP infrastructure) provider version (issue #72)",
+      "managerFilePatterns": [
+        "/(^|/)mgmt/gcp/capi-providers/capg-system/.+\\.ya?ml$/"
+      ],
+      "matchStrings": ["\\s{2}version: \"v(?<currentValue>[^\"]+)\""],
+      "depNameTemplate": "kubernetes-sigs/cluster-api-provider-gcp",
+      "datasourceTemplate": "github-releases",
+      "extractVersionTemplate": "^v(?<version>.+)",
+      "autoReplaceStringTemplate": "  version: \"v{{newValue}}\""
+    },
+    {
+      "customType": "regex",
+      "description": "Config Connector operator version (management and workload copies must stay identical; the pinned-manifest gate, tests/test-kcc-operator-pin.py, keeps them in lockstep - Renovate bumps the version comment and image tag, the gate then goes red until the whole release bundle is re-downloaded, issue #72)",
+      "managerFilePatterns": [
+        "/(^|/)mgmt/gcp/infrastructure/kcc-operator/configconnector-operator\\.yaml$/",
+        "/(^|/)workload/gcp-base/kcc/configconnector-operator\\.yaml$/"
+      ],
+      "matchStrings": [
+        "kcc-operator-version: (?<currentValue>[0-9.]+)",
+        "image: gcr.io/gke-release/cnrm/operator:(?<currentValue>[0-9.]+)"
+      ],
+      "depNameTemplate": "GoogleCloudPlatform/k8s-config-connector",
+      "datasourceTemplate": "github-releases",
+      "extractVersionTemplate": "^v(?<version>.+)"
+    },
+    {
+      "customType": "regex",
+      "description": "CAAPH (helm add-on) provider version",
+      "managerFilePatterns": [
+        "/(^|/)mgmt/(aws|azure|gcp|local-host)/capi-providers/caaph-system/.+\\.ya?ml$/"
+      ],
+      "matchStrings": ["\\s{2}version: \"v(?<currentValue>[^\"]+)\""],
+      "depNameTemplate": "kubernetes-sigs/cluster-api-addon-provider-helm",
+      "datasourceTemplate": "github-releases",
+      "extractVersionTemplate": "^v(?<version>.+)",
+      "autoReplaceStringTemplate": "  version: \"v{{newValue}}\""
+    },
+    // ── kind node images ─────────────────────────────────────────────────
+    {
+      "customType": "regex",
+      "description": "kindest/node image pins in management cluster manifests",
+      "managerFilePatterns": [
+        "/(^|/)mgmt/.+\\.ya?ml$/"
+      ],
+      "matchStrings": ["kindest/node:v(?<currentValue>[0-9A-Za-z.\\-]+)"],
+      "depNameTemplate": "kindest/node",
+      "datasourceTemplate": "docker",
+      "versioningTemplate": "docker",
+      "autoReplaceStringTemplate": "kindest/node:v{{newValue}}"
+    },
+    {
+      "customType": "regex",
+      "description": "kindest/node topology.version pins (must track the node image, #142)",
+      "managerFilePatterns": [
+        "/(^|/)mgmt/local-host/clusters/docker/cluster\\.yaml$/",
+        "/(^|/)mgmt/local-host/clusters/management/cluster\\.yaml$/"
+      ],
+      "matchStrings": ["[ \t]+version: v(?<currentValue>[0-9A-Za-z.\\-]+)"],
+      "depNameTemplate": "kindest/node",
+      "datasourceTemplate": "docker",
+      "versioningTemplate": "docker"
+    },
+    // ── virtualized-e2e harness images ───────────────────────────────────
+    {
+      "customType": "regex",
+      "description": "Annotated docker image pins in the virtualized-e2e harness templates (issue #355)",
+      "managerFilePatterns": ["/(^|/)virtualized-e2e/.+\\.ya?ml\\.tmpl$/"],
+      "matchStrings": [
+        "# renovate: datasource=(?<datasource>[a-z0-9-]+) depName=(?<depName>\\S+)\\n\\s+image: [^\\s:]+:(?<currentValue>[^\\s@:]+)(?:@(?<currentDigest>sha256:[a-f0-9]{64}))?"
+      ],
+      "versioningTemplate": "docker"
+    },
+    // ── airgap image inventory and zarf package ──────────────────────────
+    {
+      "customType": "regex",
+      "description": "airgap images.txt container refs",
+      "managerFilePatterns": ["/(^|/)airgap/images\\.txt$/"],
+      "matchStrings": [
+        "(?:^|\n)(?<depName>(?:[a-zA-Z0-9._-]+(?::[0-9]+)?/)?(?:[^\\s:@#/]+/)*[^\\s:@#/]+):(?<currentValue>[^\\s@:]+)(@(?<currentDigest>sha256:[a-f0-9]+))?[ \t]*(?:#.*)?"
+      ],
+      "datasourceTemplate": "docker",
+      "versioningTemplate": "docker"
+    },
+    {
+      "customType": "regex",
+      "description": "external container image refs in authoritative airgap scripts (#173)",
+      "managerFilePatterns": ["/(^|/)airgap/scripts/.+\\.sh$/"],
+      "matchStrings": [
+        "(?:^|\\n)(?:[ \\t]*|[^\\n#]*?(?:[ \\t\\\"'=(]|:-))(?<depName>(?:(?:[a-zA-Z0-9][a-zA-Z0-9._-]*\\.[a-zA-Z0-9._-]+|localhost)(?::[0-9]+)?/(?:[a-zA-Z0-9][a-zA-Z0-9._-]*/)*[a-zA-Z0-9][a-zA-Z0-9._-]*|(?:[a-zA-Z0-9][a-zA-Z0-9._-]*/)+[a-zA-Z0-9][a-zA-Z0-9._-]*|registry)):(?<currentValue>[a-zA-Z0-9_][a-zA-Z0-9_.-]*)(?:@(?<currentDigest>sha256:[a-f0-9]{64}))?"
+      ],
+      "datasourceTemplate": "docker",
+      "versioningTemplate": "docker"
+    },
+    {
+      "customType": "regex",
+      "description": "zarf.yaml embedded Helm chart version pins (annotation-driven, mirrors bootstrap.toml). See docs/dependencies.md#managed-surfaces for why this exists.",
+      "managerFilePatterns": ["/(^|/)airgap/zarf\\.yaml$/"],
+      "matchStrings": [
+        "# renovate: datasource=(?<datasource>[a-z0-9-]+)(?: registryUrl=(?<registryUrl>\\S+))? depName=(?<depName>\\S+)\\n\\s+version: v(?<currentValue>[^\\s]+)"
+      ]
+    },
+    {
+      "customType": "regex",
+      "description": "zarf.yaml image refs (registry with optional port)",
+      "managerFilePatterns": ["/(^|/)airgap/zarf\\.yaml$/"],
+      "matchStrings": [
+        "- (?<depName>[a-zA-Z0-9._-]+(?::[0-9]+)?/[a-zA-Z0-9._/-]+):(?<currentValue>[^\\s@]+)(@(?<currentDigest>sha256:[a-f0-9]+))?"
+      ],
+      "datasourceTemplate": "docker",
+      "versioningTemplate": "docker"
+    },
+    {
+      "customType": "regex",
+      "description": "CAAPH Zarf release files with verified checksums and staged-version paths",
+      "managerFilePatterns": ["/(^|/)airgap/zarf\\.yaml$/"],
+      "matchStrings": [
+        "# renovate: datasource=(?<datasource>github-release-attachments) depName=(?<depName>kubernetes-sigs/cluster-api-addon-provider-helm)\\n\\s*- source: https://github\\.com/[^/]+/[^/]+/releases/download/(?<currentValue>v[^/]+)/[^\\n]+\\n\\s*shasum: (?<currentDigest>[a-fA-F0-9]{64})\\n\\s*target: [^\\n]*?/(?:v[^/]+)/[^\\n]+"
+      ],
+      "versioningTemplate": "loose"
+    },
+    {
+      "customType": "regex",
+      "description": "CAAPH version rendered by the Zarf deployment action",
+      "managerFilePatterns": ["/(^|/)airgap/zarf\\.yaml$/"],
+      "matchStrings": [
+        "# renovate: datasource=(?<datasource>github-releases) depName=(?<depName>kubernetes-sigs/cluster-api-addon-provider-helm)\\n[ \\t]*\\\"\\$clusterctl\\\" generate provider --addon helm:v(?<currentValue>[^\\s\\\\]+)"
+      ],
+      "extractVersionTemplate": "^v(?<version>.+)",
+      "versioningTemplate": "semver-coerced"
+    },
+    {
+      "customType": "regex",
+      "description": "Bundled clusterctl release files with verified SHA-256 checksums",
+      "managerFilePatterns": ["/(^|/)airgap/zarf\\.yaml$/"],
+      "matchStrings": [
+        "# renovate: datasource=(?<datasource>github-release-attachments) depName=(?<depName>kubernetes-sigs/cluster-api)\\n\\s*- source: https://github\\.com/[^/]+/[^/]+/releases/download/(?<currentValue>v[^/]+)/[^\\n]+\\n\\s*shasum: (?<currentDigest>[a-fA-F0-9]{64})"
+      ],
+      "versioningTemplate": "loose"
+    },
+    // ── CAPI provider (core, bootstrap, control-plane, CAPD) Zarf release
+    // files (see docs/dependencies.md's "Managed surfaces") ──────────────
+    {
+      "customType": "regex",
+      "description": "CAPI provider (core, bootstrap-kubeadm, control-plane-kubeadm, CAPD) Zarf release files with verified checksums and staged-version paths",
+      "managerFilePatterns": ["/(^|/)airgap/zarf\\.yaml$/"],
+      "matchStrings": [
+        "# renovate: datasource=(?<datasource>github-release-attachments) depName=(?<depName>kubernetes-sigs/cluster-api-(?:core|bootstrap-kubeadm|control-plane-kubeadm|infrastructure-docker))\\n\\s*- source: https://github\\.com/[^/]+/[^/]+/releases/download/(?<currentValue>v[^/]+)/[^\\n]+\\n\\s*shasum: (?<currentDigest>[a-fA-F0-9]{64})\\n\\s*target: [^\\n]*?/(?:v[^/]+)/[^\\n]+",
+      ],
+      "depNameTemplate": "kubernetes-sigs/cluster-api",
+      "versioningTemplate": "loose"
+    },
+    // ── versions rendered by each provider's Zarf deployment action ──────
+    {
+      "customType": "regex",
+      "description": "CAPI provider (core, bootstrap-kubeadm, control-plane-kubeadm, CAPD) version rendered by the Zarf deployment action",
+      "managerFilePatterns": ["/(^|/)airgap/zarf\\.yaml$/"],
+      "matchStrings": [
+        "# renovate: datasource=(?<datasource>github-releases) depName=(?<depName>kubernetes-sigs/cluster-api-(?:core|bootstrap-kubeadm|control-plane-kubeadm|infrastructure-docker))\\n[ \\t]*\\\"\\$clusterctl\\\" generate provider (?:--core cluster-api|--bootstrap kubeadm|--control-plane kubeadm|--infrastructure docker):v(?<currentValue>[^\\s\\\\]+)",
+      ],
+      "depNameTemplate": "kubernetes-sigs/cluster-api",
+      "extractVersionTemplate": "^v(?<version>.+)",
+      "versioningTemplate": "semver-coerced"
+    },
+    {
+      "customType": "regex",
+      "description": "CAAPH clusterctl config staged release path",
+      "managerFilePatterns": ["/(^|/)airgap/files/clusterctl-providers\\.yaml$/"],
+      "matchStrings": [
+        "# renovate: datasource=(?<datasource>github-releases) depName=(?<depName>kubernetes-sigs/cluster-api-addon-provider-helm)\\n\\s*url: .*?/v(?<currentValue>[^/]+)/components\\.yaml"
+      ],
+      "extractVersionTemplate": "^v(?<version>.+)",
+      "versioningTemplate": "semver-coerced"
+    },
+    // ── clusterctl-providers.yaml staged-version paths for the 4 CAPI
+    // providers above (CAAPH's own entry is the manager just above) ──────
+    {
+      "customType": "regex",
+      "description": "CAPI provider (core, bootstrap-kubeadm, control-plane-kubeadm, CAPD) clusterctl config staged release path",
+      "managerFilePatterns": ["/(^|/)airgap/files/clusterctl-providers\\.yaml$/"],
+      "matchStrings": [
+        "# renovate: datasource=(?<datasource>github-releases) depName=(?<depName>kubernetes-sigs/cluster-api-(?:core|bootstrap-kubeadm|control-plane-kubeadm|infrastructure-docker))\\n\\s*url: .*?/v(?<currentValue>[^/]+)/[^\\n]+"
+      ],
+      "depNameTemplate": "kubernetes-sigs/cluster-api",
+      "extractVersionTemplate": "^v(?<version>.+)",
+      "versioningTemplate": "semver-coerced"
+    },
+    // EKS addon versions (*-eksbuild.*) intentionally not managed: they have
+    // no public registry datasource. Tracked in issue #74 as manual updates.
+    // The locally built localhost:5001/kaipr-airgap:latest artifact is
+    // extracted but intentionally disabled by the scoped packageRule below.
+    // ── end customManagers ────────────────────────────────────────────────
+  ],
+  "packageRules": [
+    {
+      "description": "Pin air-gap container images by digest while retaining readable tags",
+      "matchDatasources": ["docker"],
+      "matchFileNames": [
+        "airgap/images.txt",
+        "airgap/zarf.yaml",
+        "airgap/scripts/*.sh"
+      ],
+      "pinDigests": true
+    },
+    {
+      "description": "Keep Zarf GitHub release asset URLs and SHA-256 checksums together",
+      "matchDatasources": ["github-release-attachments"],
+      "matchFileNames": ["airgap/zarf.yaml"],
+      "pinDigests": true
+    },
+    {
+      "description": "Pin virtualized-e2e harness container images by digest while retaining readable tags (issue #355)",
+      "matchDatasources": ["docker"],
+      "matchFileNames": ["virtualized-e2e/**/*.yaml.tmpl"],
+      "pinDigests": true
+    },
+    {
+      "description": "Do not resolve the air-gap config artifact built locally per run",
+      "matchDatasources": ["docker"],
+      "matchPackageNames": ["localhost:5001/kaipr-airgap"],
+      "matchFileNames": [
+        "airgap/images.txt",
+        "airgap/zarf.yaml",
+        "airgap/scripts/*.sh"
+      ],
+      "enabled": false
+    },
+    {
+      "description": "Pin toolbox image base images by digest (issue #104)",
+      "matchDatasources": ["docker"],
+      "matchFileNames": ["bootstrap-rs/Dockerfile"],
+      "pinDigests": true
+    },
+    {
+      "description": "Resolve cert-manager Helm repo once across declarative and imperative pins",
+      "matchDatasources": ["helm"],
+      "matchPackageNames": ["cert-manager"],
+      "registryUrls": ["https://charts.jetstack.io"],
+      "extractVersion": "^v(?<version>.+)$"
+    },
+    {
+      "description": "Resolve cluster-api-operator Helm repo once across declarative and imperative pins",
+      "matchDatasources": ["helm"],
+      "matchPackageNames": ["cluster-api-operator"],
+      "registryUrls": ["https://kubernetes-sigs.github.io/cluster-api-operator"]
+    },
+    {
+      "description": "No automerge by default; merges stay manual (issue #74). The next rule is the only exception",
+      "matchUpdateTypes": ["major", "minor", "patch", "digest", "pin", "pinDigest"],
+      "automerge": false
+    },
+    {
+      "description": "Automerge the CI-only Renovate CLI pin (patch/minor): the renovate-digest-pinning job reinstalls this exact version and re-runs the full pinning test suite against it, so a green run already validates the bump",
+      "matchDepNames": ["renovate"],
+      "matchUpdateTypes": ["patch", "minor"],
+      "automerge": true,
+      "automergeType": "pr",
+      "minimumReleaseAge": "3 days"
+    },
+    {
+      "description": "Group GitHub Actions only, excluding workflow images and runners",
+      "matchManagers": ["github-actions"],
+      "matchDepTypes": ["action"],
+      "groupName": "github-actions"
+    },
+    {
+      "description": "Group Flux controller images and CLI updates",
+      "matchDatasources": ["docker", "github-releases", "helm"],
+      "matchPackageNames": [
+        "/^ghcr\\.io/fluxcd//",
+        "/^ghcr\\.io/controlplaneio-fluxcd//",
+        "/^fluxcd//"
+      ],
+      "groupName": "flux"
+    },
+    {
+      // See docs/dependencies.md's "Managed surfaces" for what this spans.
+      "description": "Group the CAPI family (core, kubeadm, CAPD, CAPA, CAAPH, CAPZ)",
+      "matchDatasources": ["docker", "github-releases", "github-release-attachments"],
+      "matchPackageNames": [
+        "kubernetes-sigs/cluster-api",
+        "kubernetes-sigs/cluster-api-provider-aws",
+        "kubernetes-sigs/cluster-api-addon-provider-helm",
+        "kubernetes-sigs/cluster-api-provider-azure",
+        "kubernetes-sigs/cluster-api-provider-gcp",
+        "/^registry\\.k8s\\.io/cluster-api//",
+        "/^registry\\.k8s\\.io/cluster-api-helm//",
+        "/^gcr\\.io/k8s-staging-cluster-api//"
+      ],
+      "groupName": "cluster-api"
+    },
+    {
+      "description": "CAPZ bundles ASO, which must be upgraded one minor version at a time (issue #71)",
+      "matchDatasources": ["github-releases"],
+      "matchPackageNames": ["kubernetes-sigs/cluster-api-provider-azure"],
+      "separateMultipleMinor": true,
+      "groupName": null
+    },
+    {
+      "description": "Group imperative pivot chart pins with their GitOps HelmReleases",
+      "matchDatasources": ["helm"],
+      "matchPackageNames": ["cert-manager", "cluster-api-operator"],
+      "groupName": "platform-charts"
+    },
+    {
+      // See docs/dependencies.md#managed-surfaces for what this covers and why.
+      "description": "Group all Kubernetes-release-version pins into one PR",
+      "matchDepNames": [
+        "kindest/node",
+        "kubernetes/kubernetes",
+        "registry.k8s.io/kube-apiserver",
+        "registry.k8s.io/kube-controller-manager",
+        "registry.k8s.io/kube-proxy",
+        "registry.k8s.io/kube-scheduler",
+        "registry.k8s.io/coredns/coredns",
+        "registry.k8s.io/etcd",
+        "registry.k8s.io/pause"
+      ],
+      "groupName": "kubernetes-version"
+    },
+    {
+      "description": "Group cert-manager's images.txt/zarf.yaml image tags with its Helm chart pin. See docs/dependencies.md#managed-surfaces for what this covers and why.",
+      "matchDatasources": ["docker"],
+      "matchPackageNames": [
+        "quay.io/jetstack/cert-manager-controller",
+        "quay.io/jetstack/cert-manager-cainjector",
+        "quay.io/jetstack/cert-manager-webhook",
+        "quay.io/jetstack/cert-manager-startupapicheck"
+      ],
+      "matchFileNames": ["airgap/images.txt", "airgap/zarf.yaml"],
+      "groupName": "platform-charts"
+    },
+    // flux2, sops, age, and aws-cli were previously floating "latest" pins;
+    // they are now pinned to concrete versions in mise.toml / mise.aws.toml
+    // so Renovate tracks them normally. The zarf local-registry image keeps
+    // its bare "latest" tag: it is built locally per run and has no
+    // comparable version.
+  ]
+}

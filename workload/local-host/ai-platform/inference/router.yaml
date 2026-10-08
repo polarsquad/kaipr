@@ -1,0 +1,45 @@
+# The llm-d Router Endpoint Picker (EPP) + the InferencePool it fronts.
+# The release name (vllm-sim) is load-bearing: the chart names the
+# InferencePool, the EPP Deployment/Service, and the RBAC all from it, and the
+# AgentgatewayBackend in ../policies wraps this InferencePool.
+#
+# httpRoute.create=false: this deployment does NOT ship a route. The single
+# LLM-aware HTTPRoute (../policies/llm-route.yaml) is the only route on the
+# gateway, so there is no path-specificity ambiguity between a plain
+# endpoint-selection route and the LLM-feature route. The EPP stays fully in
+# the request path: the LLM route -> AgentgatewayBackend -> InferencePool ->
+# EPP -> model-server pod.
+#
+# provider.name=none keeps the chart from emitting gateway objects for
+# another implementation; agentgateway processes the InferencePool directly.
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: vllm-sim
+  namespace: ai-platform
+spec:
+  chartRef:
+    kind: OCIRepository
+    name: llm-d-router
+    namespace: flux-system
+  interval: 10m
+  timeout: 5m
+  install:
+    createNamespace: false
+  values:
+    provider:
+      name: none
+    httpRoute:
+      create: false
+    router:
+      modelServers:
+        matchLabels:
+          app: vllm-sim
+        targetPortNumber: 8000
+      epp:
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            memory: 512Mi

@@ -1,0 +1,27 @@
+# The LLM-aware route: same Gateway and same paths as the base route, but
+# the backendRefs point at the AgentgatewayBackend so agentgateway applies
+# its LLM pipeline. Matches /v1/chat/completions and /v1/completions.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: vllm-sim-llm
+  namespace: ai-platform
+spec:
+  parentRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: inference-gateway
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /v1/chat/completions
+        - path:
+            type: PathPrefix
+            value: /v1/completions
+      backendRefs:
+        - group: agentgateway.dev
+          kind: AgentgatewayBackend
+          name: vllm-sim
+      timeouts:
+        request: 300s

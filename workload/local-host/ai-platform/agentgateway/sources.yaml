@@ -1,0 +1,28 @@
+---
+# agentgateway (control plane) chart. Same release and pin as biggs.dog
+# cluster1 runs today; Renovate tracks the OCI tag.
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: OCIRepository
+metadata:
+  name: agentgateway
+  namespace: flux-system
+spec:
+  interval: 1h
+  url: oci://ghcr.io/agentgateway/charts/agentgateway
+  ref:
+    tag: "v2.2.1"
+---
+# The agentgateway CRDs (AgentgatewayBackend / AgentgatewayPolicy /
+# AgentgatewayParameters). The Gateway API and Gateway API Inference
+# Extension CRDs are NOT shipped by this chart: they are installed by the
+# platform operator from their upstream sources (see the docs runbook).
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: OCIRepository
+metadata:
+  name: agentgateway-crds
+  namespace: flux-system
+spec:
+  interval: 1h
+  url: oci://ghcr.io/agentgateway/charts/agentgateway-crds
+  ref:
+    tag: "0.0.0-alpha.a655af15"

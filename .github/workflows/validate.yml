@@ -1,0 +1,109 @@
+name: validate
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  kustomize-build:
+    name: Build kustomize overlays
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7.0.1
+
+      - name: Install kustomize
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          curl -sSf --retry 3 --retry-delay 2 -H "Authorization: token ***" "https://raw.githubusercontent.com/kubernetes-sigs/kustomize/master/hack/install_kustomize.sh" | bash
+          sudo mv kustomize /usr/local/bin/
+          kustomize version
+
+      - name: Build every overlay
+        run: |
+          fail=0
+          for dir in $(find mgmt workload -name kustomization.yaml -exec dirname {} \; | sort -u); do
+            echo "==> kustomize build $dir"
+            if ! kustomize build "$dir" >/dev/null; then
+              echo "    FAILED: $dir" >&2
+              fail=1
+            fi
+          done
+          exit $fail
+
+      - name: Lint YAML
+        uses: ibiqlik/action-yamllint@v3.1.1
+        with:
+          file_or_dir: mgmt workload
+          config_data: |
+            extends: default
+            ignore: |
+              *.sops.yaml
+            rules:
+              line-length: disable
+              document-start: disable
+              comments:
+                min-spaces-from-content: 1
+              indentation:
+                spaces: consistent
+                indent-sequences: consistent
+
+  checks:
+    name: Script, config, and docs cross-checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7.0.1
+
+      # The sops-keygen and local-host kubeconfig checks run mise tasks, so
+      # mise and the pinned tools (age, kubectl) must be available here.
+      - name: Install mise
+        uses: jdx/mise-action@v5.1.1
+        with:
+          version: 2026.10.3
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v10.2.0
+        with:
+          version: "0.12.23"
+
+      - name: Trust the repo config
+        run: mise trust
+
+      - name: Shell scripts parse
+        run: |
+          for script in bootstrap.sh bootstrap-common.sh pivot.sh teardown.sh scripts/toolbox-run.sh; do
+            echo "==> bash -n $script"
+            bash -n "$script" || { echo "FAILED: $script" >&2; exit 1; }
+          done
+
+      - name: toolbox-run.sh exec and .env precedence
+        run: |
+          python3 tests/test-toolbox-run-exec.py
+          python3 tests/test-toolbox-run-env-precedence.py
+
+      - name: sops-keygen prints the public key
+        run: python3 tests/test-sops-keygen-prints-public-key.py
+
+      - name: local-host kubeconfig endpoint is host-only
+        run: python3 tests/test-local-host-kubeconfig-toolbox-endpoint.py
+
+      - name: Docs show toolbox helper runs, not host mise
+        run: python3 tests/test-docs-toolbox-helpers.py
+
+      - name: bootstrap.toml cross-check
+        run: python3 tests/test-bootstrap-config.py
+
+      - name: OCI publication works with host metadata and inaccessible worktree Git
+        run: python3 tests/test-oci-push-worktree.py
+
+      - name: Lint Python (ruff)
+        run: uv run ruff check .

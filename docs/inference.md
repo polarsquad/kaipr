@@ -37,7 +37,7 @@ There is one route on the gateway, and it carries the whole pipeline:
 ```
 Client
   -> inference-gateway Gateway (agentgateway data plane)
-  -> HTTPRoute vllm-sim-llm  (matches /v1/chat/completions, /v1/completions)
+  -> HTTPRoute vllm-sim-llm  (matches /v1/chat/completions)
   -> AgentgatewayBackend vllm-sim   (LLM-aware: token counting, token budget)
   -> InferencePool vllm-sim         (groups the model-server pods by label)
   -> llm-d Router EPP               (picks one pod via ext-proc)

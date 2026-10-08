@@ -18,7 +18,8 @@ spec:
           name: vllm-sim
         model: Qwen/Qwen3-32B
         formats:
-          - type: Completions
-            path: /v1/completions
+          # In this agentgateway API the OpenAI chat-completions format is
+          # named Completions; its default upstream path is
+          # /v1/chat/completions, and formats[].type must be unique.
           - type: Completions
             path: /v1/chat/completions

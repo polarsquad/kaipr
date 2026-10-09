@@ -97,9 +97,10 @@ Azure, GCP, Talos) and its tests exercise them against a fixture - the
 
 Workload components pair a plain kustomize root with the Flux objects that
 deliver them. Register new components in the parent `kustomization.yaml`;
-order with `dependsOn` / `wait: true` where it matters. AI-platform components
-are delivered wholesale by the workload Flux instance (the `podinfo` model) -
-there is no separate Flux Kustomization per component.
+order with `dependsOn` / `wait: true` where it matters. The AI platform is
+delivered by two Flux Kustomizations (`local-ai-platform-crd`, then
+`local-ai-platform` which `dependsOn` it) so the CRDs exist before the app
+objects are dry-run; see `workload/local-host/flux-ks.yaml`.
 
 The AI layer has one load-bearing contract: the InferencePool selects the
 model-server pods by the label `app: vllm-sim`, and the agentgateway

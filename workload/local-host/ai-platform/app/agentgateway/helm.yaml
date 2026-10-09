@@ -7,8 +7,8 @@
 # Prerequisites: the Gateway API CRDs (gateway.networking.k8s.io) and the
 # Gateway API Inference Extension CRDs (inference.networking.k8s.io), and the
 # agentgateway.dev CRDs that the control plane deserializes, are all installed
-# by the local-ai-platform-crd Kustomization (../crd/), which this layer's
-# Flux Kustomization depends on (see ../../flux-ks.yaml).
+# by the local-ai-platform-crd Kustomization (../../crd/), which this layer's
+# Flux Kustomization depends on (see ../../../flux-ks.yaml).
 #
 # The v1.6.0 chart ships a default container securityContext
 # (allowPrivilegeEscalation: false, readOnlyRootFilesystem: true,

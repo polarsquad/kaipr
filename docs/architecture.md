@@ -89,10 +89,12 @@ cert-manager ▶ capi-operator ▶ capi-system ▶ capd-system ▶ clusters (loc
                             │                            └▶ caaph-system ▶ cni ▶ flux-apps
 ```
 
-Workload cluster (delivered wholesale by the workload Flux instance from the
+Workload cluster (delivered by the workload Flux instance from the
 same OCI artifact):
 ```
-podinfo (HelmRelease) and ai-platform (agentgateway, model-server, inference, policies)
+podinfo (HelmRelease)
+ai-platform (local-ai-platform-crd Kustomization, then local-ai-platform:
+  agentgateway, model-server, inference, policies - dependsOn the CRD layer)
 ```
 
 ### How the workload cluster is populated
@@ -111,7 +113,8 @@ podinfo (HelmRelease) and ai-platform (agentgateway, model-server, inference, po
 
 ## The AI platform
 
-The `ai-platform` kustomization on the workload cluster is an example of an AI
+The AI platform layer on the workload cluster (`ai-platform/crd/` for the CRD
+prerequisites, `ai-platform/app/` for the components) is an example of an AI
 inference platform built on [agentgateway](https://agentgateway.dev). The
 request path:
 

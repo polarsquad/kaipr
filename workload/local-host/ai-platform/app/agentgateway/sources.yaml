@@ -25,9 +25,9 @@ spec:
     tag: "v1.6.0"
 # The agentgateway.dev CRDs (AgentgatewayBackend / AgentgatewayPolicy /
 # AgentgatewayParameters / AgentgatewayModel) are NOT sourced here: they are
-# applied by the agentgateway-crds OCIRepository + HelmRelease in ../crd/,
-# which reconciles before this layer (see ../../flux-ks.yaml). The chart tag
-# in ../crd/crds-helm.yaml MUST match the tag above: the controller
+# applied by the agentgateway-crds OCIRepository + HelmRelease in ../../crd/,
+# which reconciles before this layer (see ../../../flux-ks.yaml). The chart tag
+# in ../../crd/crds-helm.yaml MUST match the tag above: the controller
 # deserializes spec fields the CRD only exposes if they were released in the
 # same line (a CRD/chart version skew is how the TranslationError pin bug
 # above ships).

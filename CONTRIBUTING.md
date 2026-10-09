@@ -92,8 +92,10 @@ Additional conventions:
 - Each component pairs a plain kustomize root (`kustomization.yaml`) with the
   Flux objects that deliver it. Register new components in the parent
   `kustomization.yaml`.
-- AI-platform components are delivered wholesale by the workload Flux
-  instance; there is no per-component Flux Kustomization. Keep the model
+- The AI platform has two Flux Kustomizations (`local-ai-platform-crd` and
+  `local-ai-platform`, the latter `dependsOn` the former) so the CRDs exist
+  before the app objects are dry-run - do not move a CR-consuming object into
+  the `crd/` layer or a CRD into the `app/` layer. Keep the model
   server's label (`app: vllm-sim`) and port (8000) stable, or the InferencePool,
   the EPP, the backend, and the LLM route all break together.
 - Dependency versions live in the files that consume them and are updated by

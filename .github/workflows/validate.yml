@@ -45,6 +45,7 @@ jobs:
             extends: default
             ignore: |
               *.sops.yaml
+              workload/local-host/ai-platform/crd/vendor/
             rules:
               line-length: disable
               document-start: disable

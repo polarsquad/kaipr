@@ -89,10 +89,12 @@ cert-manager ▶ capi-operator ▶ capi-system ▶ capd-system ▶ clusters (loc
                             │                            └▶ caaph-system ▶ cni ▶ flux-apps
 ```
 
-Workload cluster (delivered wholesale by the workload Flux instance from the
+Workload cluster (delivered by the workload Flux instance from the
 same OCI artifact):
 ```
-podinfo (HelmRelease) and ai-platform (agentgateway, model-server, inference, policies)
+podinfo (HelmRelease)
+ai-platform (local-ai-platform-crd Kustomization, then local-ai-platform:
+  agentgateway, model-server, inference, policies - dependsOn the CRD layer)
 ```
 
 ### How the workload cluster is populated
@@ -101,16 +103,18 @@ podinfo (HelmRelease) and ai-platform (agentgateway, model-server, inference, po
    workload cluster (HelmChartProxy) and applies a `FluxInstance` that syncs
    `workload/local-host/` from the local OCI artifact.
 2. The workload cluster's Flux reconciles `workload/local-host/` from that
-   artifact. There is no separate Flux Kustomization per component: the whole
-   tree (`podinfo/` and `ai-platform/`) is delivered wholesale.
-3. Inside `ai-platform/`, the components reconcile in this order: the
-   `agentgateway-crds` HelmRelease, then the `agentgateway` control plane,
-   then the model server, the `InferencePool` + llm-d Router EPP, and the LLM
-   policies that bind them together. See [Inference platform](./inference.md).
+   artifact. The root Kustomization applies `podinfo` and creates two Flux
+   Kustomizations: the AI CRD layer (`ai-platform/crd/`) and the AI app layer
+   (`ai-platform/app/`), the latter `dependsOn` the former so the CRDs exist
+   before the AI objects are dry-run. See [Inference platform](./inference.md).
+3. Inside the AI app layer, the components reconcile in this order: the
+   `agentgateway` control plane, then the model server, the `InferencePool`
+   + llm-d Router EPP, and the LLM policies that bind them together.
 
 ## The AI platform
 
-The `ai-platform` kustomization on the workload cluster is an example of an AI
+The AI platform layer on the workload cluster (`ai-platform/crd/` for the CRD
+prerequisites, `ai-platform/app/` for the components) is an example of an AI
 inference platform built on [agentgateway](https://agentgateway.dev). The
 request path:
 

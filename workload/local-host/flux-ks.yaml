@@ -1,0 +1,47 @@
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: local-ai-platform-crd
+  namespace: flux-system
+spec:
+  interval: 10m
+  retryInterval: 2m
+  timeout: 5m
+  # Relative to the OCI artifact root (the FluxInstance's sync.path is
+  # workload/local-host), like the mgmt side's ./mgmt/local-host/... paths.
+  path: workload/local-host/ai-platform/crd
+  prune: true
+  sourceRef:
+    kind: OCIRepository
+    name: flux-system
+  wait: true
+---
+# The AI platform (agentgateway control plane, model server, InferencePool +
+# llm-d Router EPP, LLM policies).
+#
+# dependsOn: local-ai-platform-crd. The objects in this tree consume the
+# gateway.networking.k8s.io (Gateway, HTTPRoute), inference.networking.k8s.io
+# (InferencePool) and agentgateway.dev (AgentgatewayBackend,
+# AgentgatewayPolicy) CRDs, and Flux dry-runs a Kustomization's whole tree
+# before applying any of it. The dependsOn makes Flux wait for the CRD
+# Kustomization to be Ready first, which breaks the first-boot ordering
+# deadlock (the agentgateway.dev CRD HelmRelease used to live in this same
+# tree and could never be applied: the dry-run failed on the missing CRD
+# before the HelmRelease that installs it was applied).
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: local-ai-platform
+  namespace: flux-system
+spec:
+  interval: 10m
+  retryInterval: 2m
+  timeout: 10m
+  path: workload/local-host/ai-platform/app
+  prune: true
+  sourceRef:
+    kind: OCIRepository
+    name: flux-system
+  wait: true
+  dependsOn:
+    - name: local-ai-platform-crd

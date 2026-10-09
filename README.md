@@ -117,11 +117,10 @@ Linux hosts need no rewrite. See
 ├── workload/
 │   └── local-host/             # workload cluster apps, delivered from Git
 │       ├── podinfo/            #   the reference app (smoke test)
-│       └── ai-platform/        #   the AI inference platform
-│           ├── agentgateway/   #     agentgateway + Gateway + sources
-│           ├── model-server/   #     CPU vLLM simulator
-│           ├── inference/      #     InferencePool + llm-d Router EPP
-│           └── policies/       #     AgentgatewayBackend, LLM route, token budget
+│       ├── ai-platform/        #   the AI inference platform
+│       │   ├── crd/            #     CRDs: vendored gateway-api + agentgateway-crds
+│       │   └── app/            #     agentgateway, model-server, inference, policies
+│       └── flux-ks.yaml        #   the two Flux Kustomizations (app dependsOn crd)
 ├── tests/                      # self-contained cross-checks (run by mise validate)
 ├── docs/
 └── .github/workflows/          # validate, bootstrap-rs, konflate, toolbox-release

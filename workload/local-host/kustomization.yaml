@@ -1,7 +1,25 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 # Root reconciled by the FluxInstance running on the local CAPD workload
-# cluster.
+# cluster (the operator generates the root Kustomization from the FluxInstance
+# spec and reconciles this path from the OCI artifact).
+#
+# The tree is deliberately split so that first boot does not deadlock. Flux
+# dry-runs a Kustomization's whole tree before applying any of it, and the AI
+# app objects consume CRDs that do not exist on a fresh cluster, so the CRDs
+# get their own Flux Kustomization and the app layer gates on it:
+#
+#   - podinfo/           applied directly by the root (no CRD prerequisites)
+#   - flux-ks.yaml       the two AI Flux Kustomizations:
+#       local-ai-platform-crd  path ./ai-platform/crd  (the CRDs, no
+#                              CR-consuming objects)
+#       local-ai-platform      path ./ai-platform/app  (dependsOn the CRD one)
+#
+# Each object in the workload tree is owned by exactly one Flux Kustomization
+# (the root, or one child) - never two, or their prune inventories fight. The
+# root itself must NOT depend on the two children: it is what creates them,
+# and a Kustomization cannot depend on a resource it creates itself
+# (first-boot deadlock). See workload/local-host/flux-ks.yaml.
 resources:
   - podinfo
-  - ai-platform
+  - flux-ks.yaml

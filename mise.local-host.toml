@@ -123,3 +123,39 @@ echo "Press Ctrl-C to stop forwarding."
 kubectl --kubeconfig "$KUBECONFIG_FILE" \
   port-forward --namespace podinfo service/podinfo 9898:9898
 '''
+
+[tasks.inference-demo]
+description = "Expose the AI inference platform as a browser chat page at http://127.0.0.1:18081"
+run = '''
+KUBECONFIG_FILE="${KUBECONFIG_FILE:-local-workload.kubeconfig}"
+if [ ! -f "$KUBECONFIG_FILE" ]; then
+  echo "ERROR: workload kubeconfig not found: $KUBECONFIG_FILE" >&2
+  echo "       Create it with the kubeconfigs helper task (see docs/operations.md)" >&2
+  exit 1
+fi
+
+GATEWAY_PORT="${GATEWAY_PORT:-18080}"
+DEMO_PORT="${DEMO_PORT:-18081}"
+
+# Reuse an existing port-forward to the gateway; start one when absent.
+PF_PID=""
+if ! nc -z 127.0.0.1 "$GATEWAY_PORT" 2>/dev/null; then
+  echo "Starting a port-forward to the inference gateway on 127.0.0.1:${GATEWAY_PORT}"
+  kubectl --kubeconfig "$KUBECONFIG_FILE" \
+    port-forward --namespace ai-platform service/inference-gateway "${GATEWAY_PORT}:80" &
+  PF_PID=$!
+  trap 'kill ${PF_PID:-} 2>/dev/null' EXIT
+  sleep 2
+  if ! nc -z 127.0.0.1 "$GATEWAY_PORT" 2>/dev/null; then
+    echo "ERROR: the gateway port-forward did not come up on 127.0.0.1:${GATEWAY_PORT}" >&2
+    exit 1
+  fi
+else
+  echo "Reusing the port-forward already listening on 127.0.0.1:${GATEWAY_PORT}"
+fi
+
+echo "Inference demo at http://127.0.0.1:${DEMO_PORT}/"
+echo "Press Ctrl-C to stop."
+python3 scripts/inference-demo.py --port "$DEMO_PORT" \
+  --upstream "http://127.0.0.1:${GATEWAY_PORT}"
+'''

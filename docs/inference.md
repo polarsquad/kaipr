@@ -151,6 +151,27 @@ curl -s http://localhost:18080/v1/chat/completions   -H 'content-type: applicati
 The simulator returns a deterministic, model-shaped completion (no weights, no
 GPU) - enough to prove the path end to end.
 
+### The browser demo
+
+For a demo, `scripts/inference-demo.py` serves a small chat page and
+forwards `/v1/*` to the gateway port-forward, adding the CORS headers a
+browser page needs and passing through the EPP's `X-Inference-Pod` pick. Each
+rendered reply shows the serving pod, token usage, and latency. Stdlib only,
+and no cluster object: the page exercises the existing
+`POST /v1/chat/completions` route.
+
+Host-side, like `podinfo-port-forward` (the browser is on the host):
+
+```sh
+mise -E local-host run inference-demo
+```
+
+It starts the `inference-gateway` port-forward on `127.0.0.1:18080` when
+none is listening (reusing one when there is), then serves the page at
+<http://127.0.0.1:18081/>. Ports are overridable (`GATEWAY_PORT`,
+`DEMO_PORT`, or the script's `--upstream` flag). The page shows HTTP 429s
+when the token-budget policy trips, with the body rendered inline.
+
 ## The vLLM overlay
 
 To run a real model instead of the simulator, replace `model-server/` with a

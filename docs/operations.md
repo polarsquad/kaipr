@@ -157,8 +157,8 @@ Rules that apply to every helper run:
 
 Host-side on purpose: `mise run validate` (repository development, see
 [Validation](#validation)) and `mise -E local-host run podinfo-port-forward`
-(the browser is on the host; a toolbox form is shown with the local-host chain
-below).
+and `mise -E local-host run inference-demo` (the browser is on the host; a
+toolbox form is shown with the local-host chain below).
 
 ### Verifying a toolbox release
 

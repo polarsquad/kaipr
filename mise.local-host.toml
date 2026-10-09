@@ -138,6 +138,8 @@ GATEWAY_PORT="${GATEWAY_PORT:-18080}"
 DEMO_PORT="${DEMO_PORT:-18081}"
 
 # Reuse an existing port-forward to the gateway; start one when absent.
+# Note: the port probe only proves *something* listens on $GATEWAY_PORT; an
+# unrelated listener would be silently proxied to. Fine for a local demo.
 PF_PID=""
 if ! nc -z 127.0.0.1 "$GATEWAY_PORT" 2>/dev/null; then
   echo "Starting a port-forward to the inference gateway on 127.0.0.1:${GATEWAY_PORT}"

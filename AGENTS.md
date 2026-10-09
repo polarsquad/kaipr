@@ -60,8 +60,9 @@ Azure, GCP, Talos) and its tests exercise them against a fixture - the
   `bootstrap.toml`).
 - `scripts/toolbox-run.sh`: the Docker/Podman wrapper for the toolbox image;
   it handles the mounts, loads `.env`, and persists kubeconfigs under `.kube/`.
-  `scripts/inference-demo.py` is the host-side browser demo for the AI layer
-  (see `docs/inference.md`); it is stdlib-only and creates no cluster object.
+- `scripts/inference-demo.py`: the host-side browser demo for the AI layer
+  (see `docs/inference.md`); stdlib-only, same origin (no CORS), creates no
+  cluster object.
 - `tests/`: self-contained cross-checks run by `mise run validate`
   (`test-bootstrap-config.py` cross-checks the imperative chart pins against
   the Flux-reconciled versions; the rest cover the toolbox, the local-host

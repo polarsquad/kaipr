@@ -154,8 +154,8 @@ GPU) - enough to prove the path end to end.
 ### The browser demo
 
 For a demo, `scripts/inference-demo.py` serves a small chat page and
-forwards `/v1/*` to the gateway port-forward, adding the CORS headers a
-browser page needs and passing through the EPP's `X-Inference-Pod` pick. Each
+forwards `/v1/*` to the gateway port-forward, passing through the EPP's
+`X-Inference-Pod` pick (same origin, so no CORS is involved). Each
 rendered reply shows the serving pod, token usage, and latency. Stdlib only,
 and no cluster object: the page exercises the existing
 `POST /v1/chat/completions` route.

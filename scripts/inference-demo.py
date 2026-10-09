@@ -2,10 +2,10 @@
 """kaipr inference demo: a browser chat page in front of the gateway.
 
 Serves a small chat page and forwards /v1/* to the inference-gateway
-port-forward, adding the CORS headers a browser page needs and passing
-through the EPP's X-Inference-Pod pick. Stdlib only; no cluster object
-is created - the page exercises the existing POST /v1/chat/completions
-route on the inference-gateway Gateway.
+port-forward, passing through the EPP's X-Inference-Pod pick. Same origin, so
+no CORS headers. Stdlib only; no cluster object is created - the page
+exercises the existing POST /v1/chat/completions route on the
+inference-gateway Gateway.
 
 Usage:
   python3 scripts/inference-demo.py [--port 18081]
@@ -135,6 +135,8 @@ async function go() {
       addMsg('gateway', `HTTP ${r.status} ${esc(r.statusText)}
 ${typeof err === 'string' ? err : JSON.stringify(err, null, 2)}`);
       status.textContent = '';
+      send.disabled = false;
+      input.focus();
       return;
     }
     const j = await r.json();
@@ -171,24 +173,12 @@ PASS_HEADERS = ("X-Inference-Pod", "X-Inference-Tokens-Usage")
 class Handler(BaseHTTPRequestHandler):
     server_version = "kaipr-demo/1.0"
 
-    def _cors(self):
-        self.send_header("Access-Control-Allow-Origin", "*")
-        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-        self.send_header("Access-Control-Allow-Headers",
-                         "content-type, authorization")
-
     def _send(self, code, body, content_type="application/json"):
         self.send_response(code)
-        self._cors()
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
-
-    def do_OPTIONS(self):
-        self.send_response(204)
-        self._cors()
-        self.end_headers()
 
     def do_GET(self):
         if self.path in ("/", "/index.html"):
@@ -211,11 +201,22 @@ class Handler(BaseHTTPRequestHandler):
 
     def _forward(self):
         upstream = self.server.upstream
+        if "Transfer-Encoding" in self.headers and not self.headers.get("Content-Length"):
+            self._send(411, json.dumps({
+                "error": "chunked request bodies are not supported",
+            }).encode("utf-8"))
+            return
+        try:
+            length = int(self.headers.get("Content-Length") or 0)
+        except ValueError:
+            self._send(400, json.dumps({
+                "error": "malformed Content-Length header",
+            }).encode("utf-8"))
+            return
         headers = {}
         for name in ("Content-Type", "Authorization"):
             if self.headers.get(name):
                 headers[name] = self.headers[name]
-        length = int(self.headers.get("Content-Length") or 0)
         body = self.rfile.read(length) if length else None
         try:
             conn = http.client.HTTPConnection(
@@ -226,7 +227,6 @@ class Handler(BaseHTTPRequestHandler):
                 resp = conn.getresponse()
                 data = resp.read()
                 self.send_response(resp.status)
-                self._cors()
                 self.send_header("Content-Type",
                                  resp.getheader("Content-Type",
                                                 "application/json"))
@@ -240,7 +240,7 @@ class Handler(BaseHTTPRequestHandler):
                     self.wfile.write(data)
             finally:
                 conn.close()
-        except OSError as e:
+        except (OSError, http.client.HTTPException) as e:
             self._send(502, json.dumps({
                 "error": "cannot reach the gateway port-forward",
                 "detail": str(e),
@@ -271,8 +271,10 @@ def main() -> int:
     args = parser.parse_args()
 
     upstream = urlparse(args.upstream)
-    if upstream.scheme not in ("http", "https") or not upstream.hostname:
-        print(f"ERROR: invalid --upstream {args.upstream}", file=sys.stderr)
+    if upstream.scheme != "http" or not upstream.hostname:
+        print(f"ERROR: --upstream must be an http:// URL "
+              f"(got {args.upstream!r}); the gateway port-forward is "
+              f"plaintext", file=sys.stderr)
         return 1
 
     # Preflight: warn early if the port-forward is not up yet, but keep
@@ -288,7 +290,12 @@ def main() -> int:
     finally:
         probe.close()
 
-    server = ThreadingServer((args.bind, args.port), Handler, upstream)
+    try:
+        server = ThreadingServer((args.bind, args.port), Handler, upstream)
+    except OSError as e:
+        print(f"ERROR: cannot listen on {args.bind}:{args.port} ({e}); "
+              f"pass --port N or set DEMO_PORT", file=sys.stderr)
+        return 1
     print(f"kaipr inference demo on http://{args.bind}:{args.port}/ "
           f"(forwarding /v1/* to {args.upstream})", flush=True)
     try:

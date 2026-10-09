@@ -1,4 +1,4 @@
-# Repository-owned configuration for kaipr-bootstrap (krops issue #98).
+# Repository-owned configuration for kaipr-bootstrap.
 #
 # Everything repo-specific the binary needs is declared here; the binary
 # itself is a generic bootstrap engine. Environment variables (REGISTRY_PORT,

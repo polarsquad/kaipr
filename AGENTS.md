@@ -4,11 +4,13 @@ Guidance for AI coding agents working in this repository.
 
 ## What this repo is
 
-A working reference for running a GitOps-managed Kubernetes cluster on a
-single host, with an AI inference platform reconciled onto the workload
-cluster from the same Git source. Desired state is plain declarative YAML in
-Git; Flux delivers it and controllers reconcile the infrastructure to match.
-No Terraform, no state file, no cloud account.
+A working reference for an **AI platform built on agentgateway**, reconciled
+onto a workload cluster from the same Git source as the cluster itself. The
+GitOps scaffolding (bootstrap engine, toolbox, repo layout) is **derived from
+[krops](https://github.com/polarsquad/krops)**, scoped to one environment
+(`local-host`). Desired state is plain declarative YAML in Git; Flux delivers
+it and controllers reconcile the infrastructure to match. No Terraform, no
+state file, no cloud account.
 
 The reference has two parts in one tree:
 

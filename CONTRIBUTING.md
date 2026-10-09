@@ -1,10 +1,12 @@
 # Contributing to kaipr
 
-kaipr is a working reference implementation, not a product: it shows how to
-run a GitOps-managed cluster on a single host and stand up an AI inference
-platform from the same Git source. Contributions that sharpen the
-demonstration, make it more reproducible, or make it safer to operate are
-welcome. Contributions that turn it into a framework are not.
+kaipr is a working reference implementation of an AI platform built on
+agentgateway: it shows how to stand up an inference gateway with LLM routing
+and token-budget controls, reconciled onto a GitOps-managed cluster on a single
+host from the same Git source as the cluster. The GitOps scaffolding (bootstrap
+engine, toolbox, repo layout) is derived from krops. Contributions that sharpen
+the AI-platform demonstration, make it more reproducible, or make it safer to
+operate are welcome. Contributions that turn it into a framework are not.
 
 `AGENTS.md` holds the same rules in the form AI coding agents consume; the two
 files must agree, so update both when you change a workflow.

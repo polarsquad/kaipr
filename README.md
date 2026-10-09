@@ -1,77 +1,69 @@
 # kaipr
-## Kubernetes AI Platform Reference
 
 ![kaipr logo](docs/kaipr-logo.svg)
 
-kaipr is a GitOps pattern for managing infrastructure through the Kubernetes
-API with plain declarative YAML. Desired state is stored as Kubernetes
-resources in Git; [Flux](https://fluxcd.io/) delivers those resources and
-controllers continuously reconcile the infrastructure to match them. One API,
-one RBAC model, one audit trail for infrastructure and workloads. No HCL, no
-state file, no second toolchain.
+kaipr is a reference that shows how to run a complete **AI platform** on a
+single computer using Kubernetes and GitOps, with no cloud account and no GPU.
+You run one command, and a management cluster, a workload cluster, and an AI
+inference gateway all come up from a single folder of YAML in Git.
 
-This reference does two things in one repository:
+It has two halves in one repository:
 
-- A **lean, laptop-reproducible base**: a disposable [kind](https://kind.sigs.k8s.io/)
-  bootstrap cluster that [Cluster API](https://cluster-api.sigs.k8s.io/) +
-  [CAPD](https://cluster-api.sigs.k8s.io/cluster-api/docs/capd) pivots into a
-  self-managed management cluster and a workload cluster, all on one host.
-- An **AI inference platform** reconciled onto the workload cluster from the
-  same Git source: an [agentgateway](https://agentgateway.dev) inference
-  gateway in front of a Gateway API Inference Extension `InferencePool` and the
-  [llm-d Router](https://llm-d.ai) Endpoint Picker, with a CPU-reproducible
-  model server and LLM-aware agentgateway policies (token budgets). See
-  [Inference platform](docs/inference.md).
+- **A lean base.** A throwaway local cluster that hands itself over to a
+  self-managed Kubernetes control plane, everything running in containers on
+  your machine. This scaffolding is derived from
+  [krops](https://github.com/polarsquad/krops), an open-source tool for
+  GitOps-managed Kubernetes clusters: the bootstrap engine, the toolbox, and
+  the repository layout are krops' here, scoped down to one environment.
+- **An AI platform built on [agentgateway](https://agentgateway.dev).** A
+  gateway that routes AI chat requests to a model, picks the best model server
+  for each request, and enforces token budgets. The model runs as a CPU
+  simulator by default, so you can try the whole thing with no hardware or API
+  keys.
 
-It follows the platform-engineering / inference-serving direction of the
-[CDF CI/CD AI SIG](https://github.com/cdfoundation/AI): an open,
-vendor-neutral reference a fork can adapt, not a product. Fork it, strip it
-down, and make it yours.
+You do not need Kubernetes experience to follow the quickstart, but the
+machine does need a way to run [Docker](https://www.docker.com/) (or
+[Podman 5.5+](https://podman.io/)).
 
-## Who this is for
+## What you get
 
-Platform engineers who already run Kubernetes and want a working reference for
-running a GitOps-managed cluster on a single host *and* standing up an
-inference gateway with LLM routing and token-budget controls, without cloud
-credentials or GPUs.
-
-## Prerequisites
-
-- Docker or Podman 5.5+ (kind, the local registry, and the toolbox run on it).
-- macOS or Linux host. A host that routes the `kind` Docker network directly
-  (Linux) needs no extra steps; macOS needs one kubeconfig rewrite (below).
-- Git. Everything else (Flux, clusterctl, kind, helm, kubectl, sops, age,
-  uv, ruff) is pinned by `mise` and installed on demand.
-
-There are no cloud accounts, API keys, or GPUs for the default path. The model
-server is a CPU simulator; the [vLLM overlay](docs/inference.md#the-vllm-overlay)
-documents the GPU step.
+- A self-managed management cluster and a workload cluster on one host, all in
+  Docker containers.
+- An AI inference gateway in front of the model, with per-request routing and
+  a token budget.
+- One Git repository as the source of truth: change a file, push it, and the
+  clusters converge to match. No second toolchain, no state file, no cloud
+  credentials.
 
 ## Quickstart
 
-Build the toolbox image from the repository, then run the complete local-host
-lifecycle. `scripts/toolbox-run.sh` handles the container mounts, loads `.env`,
-and persists kubeconfigs under `.kube/`.
+Build the toolbox image from the repository, then run the whole lifecycle:
 
 ```sh
 docker build -f bootstrap-rs/Dockerfile -t kaipr-toolbox:dev .
 export TOOLBOX_IMAGE=kaipr-toolbox:dev
 mkdir -p .kube
-cp .env.example .env        # local-host: no cloud credentials needed
+cp .env.example .env        # no cloud credentials needed
 scripts/toolbox-run.sh bootstrap
 ```
 
-The lifecycle boots the kind bootstrap cluster, starts a local registry,
-publishes the initial OCI artifact from this checkout (the toolbox runs the
-`oci-push` helper task), seeds Flux, and pivots to a self-managed management
-and workload cluster. After the workload cluster reconciles, both `podinfo`
-and the `ai-platform` tree come up from the same artifact.
-
-Watch progress:
+That one command starts the local clusters, publishes this checkout to a local
+registry, and reconciles the management cluster, the workload cluster, and the
+AI platform from Git. Watch it land:
 
 ```sh
 export KUBECONFIG="$PWD/.kube/kaipr-mgmt.yaml"
 flux get kustomizations --watch
+```
+
+Once everything is Ready, send a chat request through the gateway to see the
+AI path end to end. The simulator answers without any real model:
+
+```sh
+kubectl port-forward -n ai-platform svc/inference-gateway 18080:80
+curl -s http://localhost:18080/v1/chat/completions \
+  -H 'content-type: application/json' \
+  -d '{"model":"Qwen/Qwen3-32B","messages":[{"role":"user","content":"hi"}],"max_tokens":8}'
 ```
 
 Run the reference checks from the host:
@@ -80,54 +72,23 @@ Run the reference checks from the host:
 mise run validate
 ```
 
-On macOS, a local-host run leaves the exported management kubeconfig pointing
-at the `kind` Docker network, which Docker Desktop does not route; rewrite a
-host copy before the `export` above. Linux hosts route the `kind` network
-directly and need no rewrite. See
-[Host-side access after a toolbox local-host run (macOS)](docs/operations.md#host-side-access-after-a-toolbox-local-host-run-macos).
-
-Tear down the whole stack (same mounts, `teardown` subcommand):
+Tear the whole stack down again with:
 
 ```sh
 scripts/toolbox-run.sh teardown
 ```
 
-## The AI platform
+On macOS the exported kubeconfig points at the `kind` Docker network, which
+Docker Desktop does not route; rewrite a host copy before the `export` above.
+Linux hosts need no rewrite. See
+[Host-side access after a toolbox local-host run (macOS)](docs/operations.md#host-side-access-after-a-toolbox-local-host-run-macos).
 
-`workload/local-host/ai-platform/` reconciles the inference platform onto the
-workload cluster:
+## Going deeper
 
-- **agentgateway** (v1.6.0) with `inferenceExtension.enabled=true`, the
-  `agentgateway` GatewayClass, and the `inference-gateway` Gateway.
-- **Gateway API Inference Extension**: an `InferencePool` that selects the
-  model-server pods by label, plus the **llm-d Router** EPP (v0.9.0) that
-  picks a pod per request over ext-proc.
-- A **CPU-reproducible model server** (`ghcr.io/llm-d/llm-d-inference-sim`) that
-  speaks the vLLM API without weights or GPUs, with a documented vLLM overlay.
-- **agentgateway LLM policies**: an `AgentgatewayBackend` wrapping the
-  InferencePool, the single LLM `HTTPRoute`, and a token-budget
-  `AgentgatewayPolicy` (100k tokens/minute/proxy).
-
-The full request path, the CRD prerequisites, bring-up verification, and the
-vLLM overlay are in [Inference platform](docs/inference.md).
-
-## The bootstrap CLI
-
-The Rust [`kaipr-bootstrap`](docs/bootstrap-cli.md) binary is a generic
-bootstrap engine: it reads the repository's `bootstrap.toml` for the
-environment list, chart pins, and per-environment teardown, and handles
-bootstrap, pivot, and teardown. This reference declares a single environment,
-`local-host` (the `bootstrap.toml` is the single source of truth for what
-environments exist). The lifecycle scripts wrap it; see
-[Bootstrap CLI](docs/bootstrap-cli.md) for the knob table and entry-point
-status.
-
-## Documentation
-
-- [Inference platform](docs/inference.md) - the AI layer, request path, and vLLM overlay
+- [Inference platform](docs/inference.md) - the AI layer, the request path, and the vLLM overlay
 - [Architecture](docs/architecture.md) - how the pieces fit
 - [Operations](docs/operations.md) - toolbox runs, helper tasks, verification
-- [Bootstrap CLI](docs/bootstrap-cli.md) - the `kaipr-bootstrap` engine and knobs
+- [Bootstrap CLI](docs/bootstrap-cli.md) - the `kaipr-bootstrap` engine and its knobs
 - [Secrets](docs/secrets.md) - SOPS/age for in-tree secrets
 - [Dependencies](docs/dependencies.md) - version surfaces and the update procedure
 - [Adding clusters and apps](docs/extending.md) - extending the reference

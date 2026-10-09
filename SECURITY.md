@@ -1,9 +1,10 @@
 # Security policy
 
-kaipr is a reference implementation of a GitOps pattern for managing
-Kubernetes infrastructure through the Kubernetes API. It is not a product
-with a release cadence, but its manifests, scripts, CLI, container image, and
-CI workflows can be pointed at real clusters, so security reports are taken
+kaipr is a working reference for an AI platform built on
+[agentgateway](https://agentgateway.dev), reconciled onto a GitOps-managed
+workload cluster through the Kubernetes API. It is not a product with a
+release cadence, but its manifests, scripts, CLI, container image, and CI
+workflows can be pointed at real clusters, so security reports are taken
 seriously.
 
 ## Reporting a vulnerability

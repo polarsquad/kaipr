@@ -39,9 +39,14 @@ pattern:
    on its next sync from the OCI artifact.
 
 For the AI platform specifically, add the new component to
-`workload/local-host/ai-platform/` in the right reconciliation order (CRDs,
-then control plane, then model servers, then the `InferencePool`/EPP, then the
-policies that bind them). See [Inference platform](./inference.md).
+`workload/local-host/ai-platform/app/` in the right reconciliation order
+(control plane, then model servers, then the `InferencePool`/EPP, then the
+policies that bind them). If the component introduces a CR-consuming kind,
+the CRDs belong in `workload/local-host/ai-platform/crd/`, not in the app
+tree: Flux dry-runs a Kustomization's whole tree before applying any of it,
+so a CR in the same tree as its own CRD installer deadlocks on first boot
+(see the `local-ai-platform` / `local-ai-platform-crd` split in
+`workload/local-host/flux-ks.yaml`).
 
 ## Using other providers
 

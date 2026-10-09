@@ -45,10 +45,14 @@ Azure, GCP, Talos) and its tests exercise them against a fixture - the
     cluster definition.
 - `workload/local-host/`: synced by the WORKLOAD cluster's Flux.
   - `podinfo/`: the reference app, a smoke test.
-  - `ai-platform/`: the AI inference platform - `agentgateway/`,
-    `model-server/` (the CPU vLLM simulator), `inference/` (InferencePool +
-    llm-d Router EPP), and `policies/` (AgentgatewayBackend, LLM route,
-    token-budget policy).
+  - `ai-platform/`: the AI inference platform. `crd/` is the CRD layer
+    (namespace, vendored Gateway API + Inference Extension CRDs, the
+    agentgateway.dev CRDs HelmRelease); `app/` is the app layer
+    (`agentgateway/`, `model-server/` (the CPU vLLM simulator),
+    `inference/` (InferencePool + llm-d Router EPP), and `policies/`
+    (AgentgatewayBackend, LLM route, token-budget policy)). `flux-ks.yaml`
+    defines the two Flux Kustomizations; the app layer `dependsOn` the CRD
+    layer (first-boot ordering: Flux dry-runs a tree before applying it).
 - `bootstrap-rs/`: `kaipr-bootstrap`, the Rust CLI (bootstrap, pivot,
   teardown) that reads `bootstrap.toml`. `Dockerfile` builds the toolbox
   image (mise + a podman remote client). The engine is generic over

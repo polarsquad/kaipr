@@ -1,0 +1,39 @@
+# The agentgateway.dev CRDs (AgentgatewayBackend / AgentgatewayPolicy /
+# AgentgatewayParameters / AgentgatewayModel).
+#
+# This HelmRelease is reconciled by the local-ai-platform-crd Kustomization,
+# BEFORE the app layer (local-ai-platform) dry-runs any object that consumes
+# these CRDs. It used to live in the app layer's agentgateway/helm.yaml, where
+# it deadlocked on first boot: the app Kustomization's dry-run fails on the
+# missing CRDs before Flux would ever apply the HelmRelease that installs
+# them.
+#
+# The tag MUST match the agentgateway control plane chart tag in
+# ../app/agentgateway/sources.yaml: the controller deserializes spec fields
+# the CRD only exposes if they were released in the same line (a CRD/chart
+# version skew is how the TranslationError pin bug shipped).
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: OCIRepository
+metadata:
+  name: agentgateway-crds
+  namespace: flux-system
+spec:
+  interval: 1h
+  url: oci://ghcr.io/agentgateway/charts/agentgateway-crds
+  ref:
+    tag: "v1.6.0"
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: agentgateway-crds
+  namespace: ai-platform
+spec:
+  chartRef:
+    kind: OCIRepository
+    name: agentgateway-crds
+    namespace: flux-system
+  interval: 10m
+  timeout: 5m
+  install:
+    createNamespace: false

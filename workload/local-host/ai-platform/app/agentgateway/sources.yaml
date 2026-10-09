@@ -23,22 +23,11 @@ spec:
   url: oci://ghcr.io/agentgateway/charts/agentgateway
   ref:
     tag: "v1.6.0"
----
-# The agentgateway CRDs (AgentgatewayBackend / AgentgatewayPolicy /
-# AgentgatewayParameters / AgentgatewayModel). The Gateway API and Gateway
-# API Inference Extension CRDs are NOT shipped by this chart: they are
-# installed by the platform operator from their upstream sources (see the
-# docs runbook). The tag MUST match the agentgateway chart tag above: the
-# controller deserializes spec fields the CRD only exposes if they were
-# released in the same line (a CRD/chart version skew is how the
-# TranslationError pin bug above ships.
-apiVersion: source.toolkit.fluxcd.io/v1
-kind: OCIRepository
-metadata:
-  name: agentgateway-crds
-  namespace: flux-system
-spec:
-  interval: 1h
-  url: oci://ghcr.io/agentgateway/charts/agentgateway-crds
-  ref:
-    tag: "v1.6.0"
+# The agentgateway.dev CRDs (AgentgatewayBackend / AgentgatewayPolicy /
+# AgentgatewayParameters / AgentgatewayModel) are NOT sourced here: they are
+# applied by the agentgateway-crds OCIRepository + HelmRelease in ../crd/,
+# which reconciles before this layer (see ../../flux-ks.yaml). The chart tag
+# in ../crd/crds-helm.yaml MUST match the tag above: the controller
+# deserializes spec fields the CRD only exposes if they were released in the
+# same line (a CRD/chart version skew is how the TranslationError pin bug
+# above ships).

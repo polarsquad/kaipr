@@ -1,3 +1,5 @@
+# The ai-platform namespace. See ../../flux-ks.yaml for why it ships with the
+# CRD layer instead of the app layer.
 apiVersion: v1
 kind: Namespace
 metadata:

@@ -1,0 +1,10 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+# The AI platform layer, reconciled by the local-ai-platform Flux
+# Kustomization (see ../../flux-ks.yaml), which dependsOn
+# local-ai-platform-crd so the CRDs this tree consumes exist first.
+resources:
+  - ./agentgateway
+  - ./model-server
+  - ./inference
+  - ./policies

@@ -10,17 +10,20 @@ CDF CI/CD AI SIG calls for: a reference architecture, not a product.
 
 ## What is deployed
 
-The `ai-platform` kustomization (`workload/local-host/ai-platform/`) reconciles
-five components, all in the `ai-platform` namespace:
+The AI platform is split across two Flux Kustomizations on the workload
+cluster (declared in `workload/local-host/flux-ks.yaml`), reconciled in this
+order: `local-ai-platform-crd` (path `workload/local-host/ai-platform/crd/`),
+then `local-ai-platform` (path `workload/local-host/ai-platform/app/`), which
+`dependsOn` the CRD layer. All application objects live in the
+`ai-platform` namespace:
 
 | Component | Path | What it creates |
 |---|---|---|
-| Gateway API + Inference Extension CRDs | (operator prerequisite) | the `gateway.networking.k8s.io` and `inference.networking.k8s.io` CRDs |
-| agentgateway CRDs | `agentgateway/` | the `agentgateway.dev` CRDs (`AgentgatewayBackend`/`Policy`/`Parameters`/`Model`), applied by the `agentgateway-crds` HelmRelease |
-| agentgateway | `agentgateway/` | the control plane (controller), the `agentgateway` GatewayClass, the `inference-gateway` Gateway, and the self-deployed data plane |
-| Model server | `model-server/` | a CPU-reproducible vLLM stand-in (`vllm-sim`) |
-| llm-d Router | `inference/` | the `InferencePool` + EPP Deployment/Service (no HTTPRoute) |
-| LLM policies | `policies/` | the `AgentgatewayBackend`, the single LLM `HTTPRoute`, and a token-budget `AgentgatewayPolicy` |
+| CRD prerequisites | `ai-platform/crd/` | the `ai-platform` namespace, the pinned Gateway API + Inference Extension CRD manifests (vendored), and the `agentgateway.dev` CRDs (`AgentgatewayBackend`/`Policy`/`Parameters`/`Model`) applied by the `agentgateway-crds` HelmRelease |
+| agentgateway | `ai-platform/app/agentgateway/` | the control plane (controller), the `agentgateway` GatewayClass, the `inference-gateway` Gateway, and the self-deployed data plane |
+| Model server | `ai-platform/app/model-server/` | a CPU-reproducible vLLM stand-in (`vllm-sim`) |
+| llm-d Router | `ai-platform/app/inference/` | the `InferencePool` + EPP Deployment/Service (no HTTPRoute) |
+| LLM policies | `ai-platform/app/policies/` | the `AgentgatewayBackend`, the single LLM `HTTPRoute`, and a token-budget `AgentgatewayPolicy` |
 
 Pinned versions (Renovate tracks the OCI/Git tags):
 
@@ -76,44 +79,60 @@ endpoint selection only, with no LLM features.
 
 ## CRD prerequisites
 
-The Gateway API and Inference Extension CRDs are cluster-wide prerequisites,
-installed once per cluster by the platform operator - they are not workload
-objects this kustomization owns. Install them before the AI layer reconciles:
+All three CRD groups the AI layer consumes are now reconciled by GitOps as
+the `local-ai-platform-crd` Kustomization (path
+`workload/local-host/ai-platform/crd/`), and `local-ai-platform` gates on it
+via `dependsOn`. There is no manual install step for a local-host run.
 
-```sh
-# Gateway API: v1.6.2, the same release the agentgateway v1.6.0 controller
-# is built against (its go.mod pins gateway-api v1.6.2). The experimental
-# channel is used so the optional experimental-only CRDs (xbackends) exist
-# if the controller's XBackend support is ever enabled; the v1.6.0
-# controller's core routes (HTTP/GRPC/TCP/TLS) are all v1 and work with the
-# standard channel too.
-kubectl apply -f "https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.6.2/experimental-install.yaml"
-kubectl apply -f "https://github.com/kubernetes-sigs/gateway-api-inference-extension/releases/download/v1.6.2/manifests.yaml"
-```
+- The Gateway API CRDs (`v1.6.2`, **experimental** channel) and the Gateway
+  API Inference Extension CRDs (`v1.6.2`) are vendored in
+  `workload/local-host/ai-platform/crd/vendor/`. They are pinned to `v1.6.2`
+  because that is the release the agentgateway `v1.6.0` controller is built
+  against (its go.mod pins gateway-api v1.6.2). The experimental channel is
+  used so the optional experimental-only CRDs (xbackends) exist if the
+  controller's XBackend support is ever enabled; the v1.6.0 controller's core
+  routes (HTTP/GRPC/TCP/TLS) are all v1 and work with the standard channel
+  too. Re-vendoring is documented in each file's header.
+- The `agentgateway.dev` CRDs (`AgentgatewayBackend`, `AgentgatewayPolicy`,
+  `AgentgatewayParameters`, `AgentgatewayModel`) are applied by the
+  `agentgateway-crds` HelmRelease in
+  `workload/local-host/ai-platform/crd/crds-helm.yaml` from the
+  `agentgateway-crds` OCI source, tagged `v1.6.0` - the same tag as the
+  control plane chart.
 
-The `agentgateway.dev` CRDs (`AgentgatewayBackend`, `AgentgatewayPolicy`,
-`AgentgatewayParameters`, `AgentgatewayModel`) are applied by the
-`agentgateway-crds` HelmRelease in `agentgateway/helm.yaml` from the
-`agentgateway-crds` OCI source in `agentgateway/sources.yaml` - the same
-`v1.6.0` tag as the control plane chart. Because that HelmRelease is in the
-same kustomization, Flux orders it before the `agentgateway` control plane.
-On a non-Flux cluster, install them by hand from the same chart:
+The split exists because of a first-boot ordering constraint: Flux dry-runs a
+Kustomization's whole tree before applying any of it, so the AI app objects
+(Gateway, HTTPRoute, InferencePool, AgentgatewayBackend, AgentgatewayPolicy)
+cannot be reconciled until the CRDs exist. When the `agentgateway-crds`
+HelmRelease lived in the same tree, the dry-run failed on the missing CRD
+before the HelmRelease that installs it could ever be applied (first-boot
+deadlock, see the fix PR for issue #6). Giving the CRDs their own
+Kustomization and gating the app on it with `dependsOn` breaks the cycle.
+
+On a non-Flux cluster, install the agentgateway CRDs by hand from the same
+chart:
 
 ```sh
 helm install agentgateway-crds oci://ghcr.io/agentgateway/charts/agentgateway-crds \
   --version v1.6.0 --namespace ai-platform --create-namespace
 ```
 
+and the two upstream manifests from the release links in
+`workload/local-host/ai-platform/crd/vendor/`.
+
 ## Bring-up
 
-The AI layer is delivered by Flux from the same OCI artifact as the rest of the
-workload cluster (there is no separate Flux Kustomization per component, the
-same model as `podinfo`). After a local-host bootstrap run, the whole
-`workload/local-host/` tree - `podinfo` plus `ai-platform` - reconciles.
+The AI layer is delivered by Flux from the same OCI artifact as the rest of
+the workload cluster. After a local-host bootstrap run, the root Kustomization
+applies `podinfo` and creates the two AI Flux Kustomizations; the CRD layer
+(`local-ai-platform-crd`) reconciles, then the app layer
+(`local-ai-platform`) follows as soon as the CRD layer is Ready
+(`dependsOn`).
 
 Watch the reconciliation:
 
 ```sh
+flux get kustomizations -n flux-system          # local-ai-platform-crd, then local-ai-platform
 flux get helmreleases -n ai-platform --watch
 flux get sources oci -n flux-system | grep -E 'agentgateway|llm-d'
 ```

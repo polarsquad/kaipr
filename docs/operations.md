@@ -328,7 +328,8 @@ against the host copy from
 ### Verifying the AI platform
 
 The workload cluster reconciles `workload/local-host/ai-platform/` from the
-same OCI artifact as `podinfo`. Verify the stages of the request path:
+same OCI artifact as `podinfo`: the CRD layer (`crd/`) first, then the app
+layer (`app/`) once the CRDs are Ready. Verify the stages of the request path:
 
 ```sh
 export KUBECONFIG="$PWD/.kube/local-workload.kubeconfig"

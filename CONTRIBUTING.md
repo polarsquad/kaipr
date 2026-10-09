@@ -20,7 +20,8 @@ The first pass is a lean, public, laptop-reproducible reference:
   workflow.
 - The AI inference platform (agentgateway + InferencePool + llm-d Router EPP +
   CPU model server + LLM policies) is declared in `workload/local-host/ai-platform/`
-  and passes the kustomize + cross-check gate.
+  (CRD layer in `crd/`, app layer in `app/`, ordered by `dependsOn`) and
+  passes the kustomize + cross-check gate.
 - A live local-host e2e run (bootstrap through the toolbox, then a real
   inference request against the gateway) is the next step and is tracked as a
   follow-up issue.

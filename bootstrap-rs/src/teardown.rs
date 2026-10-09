@@ -261,6 +261,21 @@ fn parse_workloads(listing: &str, mgmt_cluster: &str) -> Vec<String> {
     workloads
 }
 
+/// The CAPD Cluster set the pre-pivot local-host teardown deletes on the
+/// kind bootstrap cluster: the configured workloads plus the management
+/// cluster itself. Pre-pivot the management cluster is a CAPD cluster on
+/// the kind host and must be deprovisioned before `kind delete` or its
+/// node/LB containers are orphaned (issue #8). Post-pivot it is the
+/// controller host, not a CAPI Cluster, so this set is only valid for the
+/// kind pre-pivot branch (that path removes it via `mgmt-container-prefix`).
+fn pre_pivot_capd_clusters(capi_workloads: &[String], mgmt_cluster: &str) -> Vec<String> {
+    let mut clusters: Vec<String> = capi_workloads.to_vec();
+    clusters.push(mgmt_cluster.to_string());
+    clusters.sort();
+    clusters.dedup();
+    clusters
+}
+
 /// Discover the controller host for the aws environment. Order:
 /// kind cluster present (and reachable) wins (pre-pivot world); then the
 /// mgmt kubeconfig (post-pivot); then unreachable.
@@ -1911,11 +1926,6 @@ pub async fn run_teardown(cfg: &Config, tcfg: &TeardownConfig) -> Result<()> {
                     select_toolbox_kind_kubeconfig(cfg).await?;
                 }
             }
-            let _ = run(
-                "kubectl",
-                &["config", "use-context", &cfg.repo.bootstrap.kind_context],
-            )
-            .await;
             None
         } else {
             // Post-pivot: the self-managed mgmt kubeconfig.
@@ -1940,32 +1950,64 @@ pub async fn run_teardown(cfg: &Config, tcfg: &TeardownConfig) -> Result<()> {
             })
         };
 
-        // Suspend the workload Kustomization (prevents Flux recreating
-        // the Cluster while CAPD removes its machines), then delete the
-        // workload clusters, then remove the controller host.
-        if let Some(kc) = kc.as_deref() {
-            let _ = run(
-                "kubectl",
-                &kubectl_cmd(
-                    Some(kc),
-                    &[
-                        "patch",
-                        "kustomization/docker-workload-cluster",
-                        "-n",
-                        "flux-system",
-                        "--type",
-                        "merge",
-                        "-p",
-                        r#"{"spec":{"suspend":true}}"#,
-                    ],
-                ),
-            )
-            .await;
-            if let Some(target) = &target {
+        // Suspend the cluster Kustomizations (prevents Flux recreating a
+        // Cluster while CAPD removes its machines), then delete the CAPD
+        // clusters, then remove the controller host.
+        if let Some(target) = &target {
+            if kind_present {
+                // Pre-pivot both cluster Kustomizations live on the kind
+                // bootstrap cluster; suspend both so Flux cannot recreate
+                // either Cluster while CAPD removes its Docker machines.
+                for ks in ["docker-workload-cluster", "docker-management-cluster"] {
+                    let _ = run(
+                        "kubectl",
+                        &to_refs(&kubectl_args(
+                            target,
+                            &[
+                                "patch",
+                                "kustomization",
+                                ks,
+                                "-n",
+                                "flux-system",
+                                "--type",
+                                "merge",
+                                "-p",
+                                r#"{"spec":{"suspend":true}}"#,
+                            ],
+                        )),
+                    )
+                    .await;
+                }
+                // Pre-pivot the management cluster is a CAPD cluster on the
+                // kind host, so deprovision it alongside the workloads
+                // before `kind delete` (issue #8: its node/LB containers
+                // would otherwise be orphaned on the host). Post-pivot it
+                // is the self-managed controller host and is removed at the
+                // container level via mgmt-container-prefix instead.
+                let clusters = pre_pivot_capd_clusters(&td.capi_workloads, &env.mgmt_cluster);
+                delete_capi_workloads(target, &clusters, 300).await?;
+            } else if let Some(kc) = kc.as_deref() {
+                let _ = run(
+                    "kubectl",
+                    &kubectl_cmd(
+                        Some(kc),
+                        &[
+                            "patch",
+                            "kustomization/docker-workload-cluster",
+                            "-n",
+                            "flux-system",
+                            "--type",
+                            "merge",
+                            "-p",
+                            r#"{"spec":{"suspend":true}}"#,
+                        ],
+                    ),
+                )
+                .await;
+                delete_capi_workloads(target, &td.capi_workloads, 300).await?;
+            } else {
                 delete_capi_workloads(target, &td.capi_workloads, 300).await?;
             }
-        } else if let Some(target) = &target {
-            delete_capi_workloads(target, &td.capi_workloads, 300).await?;
         } else {
             println!(">>> No reachable management cluster; skipping CAPI workload deletion");
         }
@@ -2605,6 +2647,56 @@ mod tests {
         );
         let msg = res.unwrap_err().to_string();
         assert!(msg.contains("cannot confirm the state of CAPD workload cluster 'w'"));
+    }
+
+    #[test]
+    fn pre_pivot_delete_set_includes_the_management_cluster() {
+        let workloads = ["local-workload".to_string()];
+        // Pre-pivot the CAPD management cluster is a Cluster on the kind
+        // host and must be deleted with the workloads (issue #8), so the
+        // delete set carries both names.
+        assert_eq!(
+            pre_pivot_capd_clusters(&workloads, "local-management"),
+            vec!["local-management", "local-workload"]
+        );
+    }
+
+    #[tokio::test]
+    async fn pre_pivot_capd_delete_set_deletes_the_management_cluster() {
+        let tmp = tempfile::tempdir().unwrap();
+        let log = tmp.path().join("argv.log");
+        // Per-cluster counter: the first named `get cluster <name>` answers
+        // present (non-empty listing), every later one answers empty, so the
+        // initial probe finds each cluster, the deletion runs, and the first
+        // poll confirms it gone.
+        let body = "if [ \"$3\" = get ] && [ \"$4\" = cluster ]; then\n  c=$5\n  f={p}/$c.count\n  n=$(cat $f 2>/dev/null || echo 0)\n  n=$((n+1))\n  echo $n > $f\n  if [ $n -eq 1 ]; then\n    echo cluster.cluster.x-k8s.io/$c\n  fi\nfi\nexit 0";
+        let replaced = body.replace("{p}", &tmp.path().display().to_string());
+        let bin = kubectl_stub(tmp.path(), &log, &replaced);
+        let target = K8sTarget::Kind {
+            context: "kind-mgmt".into(),
+        };
+        let workloads = ["local-workload".to_string()];
+        let clusters = pre_pivot_capd_clusters(&workloads, "local-management");
+        delete_capi_workloads_with(&bin.to_string_lossy(), &target, &clusters, 30)
+            .await
+            .unwrap();
+        let recorded = std::fs::read_to_string(&log).unwrap();
+        // Both the workload and the management cluster get deleted, and
+        // every call is bound to the explicit kind context.
+        assert!(
+            recorded.contains("delete cluster local-workload -n default --wait=false"),
+            "the workload cluster must be deleted, got: {recorded}"
+        );
+        assert!(
+            recorded.contains("delete cluster local-management -n default --wait=false"),
+            "the pre-pivot management cluster must be deleted, got: {recorded}"
+        );
+        for line in recorded.lines() {
+            assert!(
+                line.contains("--context kind-mgmt"),
+                "every kubectl call must bind the kind context, got: {line}"
+            );
+        }
     }
 
     #[tokio::test]

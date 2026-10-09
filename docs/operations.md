@@ -559,10 +559,11 @@ required-tool failure happens before mutation. The wrapper does not forward the
 teardown controls in the table above; use a raw container invocation with
 explicit `-e` entries or a fallback native run for recovery overrides.
 
-For `local-host`, teardown suspends the workload Kustomization, deletes the
-CAPD workload cluster, waits for its containers to disappear, removes either
-the pre-pivot kind cluster or the post-pivot self-managed management
-containers, and removes `kaipr-registry` last.
+For `local-host`, teardown suspends the cluster Kustomizations, deletes the
+CAPD workload cluster and (pre-pivot) the CAPD management cluster, waits for
+their containers to disappear, removes either the pre-pivot kind cluster or
+the post-pivot self-managed management containers, and removes
+`kaipr-registry` last.
 
 The controller-host guard prevents removal while CAPI workload deletion is
 unconfirmed. Do not bypass it unless you accept orphaned containers.

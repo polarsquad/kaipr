@@ -5,6 +5,17 @@ The imperative part of kaipr lives in one Rust binary under
 default CAPI pivot into the self-managed management cluster, and teardown.
 After bootstrap and pivot finish, Flux owns the declared state until teardown.
 
+The binary is the generic bootstrap engine carried over from
+[krops](https://github.com/polarsquad/krops). It is deliberately environment
+agnostic: it reads everything repo-specific from
+[`bootstrap.toml`](../bootstrap.toml) and understands several environment
+`kind`s (`local-host`, `aws`, `azure`, `gcp`, `local-talos`). This reference
+enables exactly one of them, `local-host`, so the whole thing runs on a laptop
+with no cloud account. The other `kind`s are part of the engine's contract
+(they are what krops uses for its cloud environments) and are documented below
+because they share the same interface, but no manifests for them are checked
+in here.
+
 The binary is a behavioral port of `bootstrap.sh`, `pivot.sh`, and
 `teardown.sh`. It preserves their step order, progress messages, environment
 interface, and safety guards, with two deliberate upgrades:
@@ -32,11 +43,11 @@ image when its inputs change.
 
 Each architecture builds natively rather than under QEMU: emulating the
 amd64 rustc binary on the arm64 runner segfaulted deterministically and
-blocked the v0.2.0 release (issue #254). The two single-arch images are
-merged into the multi-arch manifest with `docker buildx imagetools create`
-in plain bash rather than `docker/metadata-action`, after that action's
-`tags` output collapsed to a single tag on the v0.2.1 run and silently
-dropped the `X.Y` and `latest` aliases.
+blocked the v0.2.0 release. The two single-arch images are merged into the
+multi-arch manifest with `docker buildx imagetools create` in plain bash
+rather than `docker/metadata-action`, after that action's `tags` output
+collapsed to a single tag on the v0.2.1 run and silently dropped the `X.Y` and
+`latest` aliases.
 
 Verify a published image against the workflow's OIDC identity:
 
@@ -78,20 +89,19 @@ kaipr-bootstrap teardown [PROFILE]
 Common examples:
 
 ```sh
-kaipr-bootstrap                         # aws bootstrap, then pivot
-kaipr-bootstrap local-host              # local-host bootstrap, then pivot
+kaipr-bootstrap                         # local-host bootstrap, then pivot
 kaipr-bootstrap --recreate local-host   # rebuild the bootstrap kind cluster
-kaipr-bootstrap teardown                # aws teardown
-kaipr-bootstrap teardown local-host     # local-host teardown
+kaipr-bootstrap teardown                # local-host teardown
+kaipr-bootstrap teardown local-host     # local-host teardown (explicit)
 ```
 
-- `PROFILE` is the CLI's retained positional name. Its value names a section
-  under `[environments.*]` in
-  [`bootstrap.toml`](../bootstrap.toml). The checked-in environments are
-  `aws`, `local-host`, `local-talos`, `azure`, and `gcp`.
-- A non-empty `KAIPR_PROFILE` overrides the positional profile. If
-  neither is set, `bootstrap.default-environment` from `bootstrap.toml` is
-  used.
+- `PROFILE` is the CLI's positional name. Its value names a section under
+  `[environments.*]` in [`bootstrap.toml`](../bootstrap.toml). This reference
+  checks in a single environment, `local-host`. The engine understands more
+  (`aws`, `azure`, `gcp`, `local-talos`) for the environments krops ships;
+  adding one is described in [extending.md](./extending.md).
+- A non-empty `KAIPR_PROFILE` overrides the positional profile. If neither is
+  set, `bootstrap.default-environment` from `bootstrap.toml` is used.
 - `--recreate` applies to bootstrap only. Teardown is a subcommand and keeps
   its script-compatible controls in environment variables.
 - There is no pivot subcommand. Pivot is the default exit from bootstrap, and
@@ -110,54 +120,58 @@ teardown names against the Git manifests. Renovate updates the annotated chart
 pins together with their declarative counterparts. See
 [Dependencies](./dependencies.md).
 
+The `local-host` entry declares `sync = "oci"` (the management Flux instance
+pulls the OCI artifact the local registry serves), the management cluster
+name, the infra provider (`docker` / `capd-system`), and the provider
+manifests. The engine also recognizes fields used only by the non-local
+environment kinds, so they are not needed here:
+
 - `pivot-sops-secrets` (optional, list): SOPS-encrypted manifests the pivot
   decrypts with `SOPS_AGE_KEY_FILE` (defaults to `AGE_KEY_FILE`) and applies to
-  the target before `clusterctl move`. No checked-in environment uses it today;
-  it is kept for environments whose moved objects reference a SOPS-encrypted
-  Secret by name (see `pivot-manifests` as the secret-free replacement).
+  the target before `clusterctl move`. No environment here uses it.
 - `pivot-manifests` (optional, list): plain (unencrypted) manifests applied to
-  the target before `clusterctl move`, after the provider CRs. The
-  workload-identity replacement for `pivot-sops-secrets`; used by `azure` for
-  the secret-free `aso-credentials` Secret (issue #236). `${VAR}` placeholders
-  are substituted from the ConfigMaps in the Flux namespace of the bootstrap
-  cluster (the values its Flux reconciled, e.g. `azure-vars`); the pivot fails
-  naming any placeholder no ConfigMap provides.
-- `post-kind-create-task` (optional, string): name of a mise task in the
-  active profile (`mise.<env>.toml`) run once the kind bootstrap cluster
-  exists, on both the create and healthy-reuse paths; a non-zero exit aborts
-  the bootstrap. `azure` uses it for Arc OIDC federation (issue #236).
+  the target before `clusterctl move`, after the provider CRs, with `${VAR}`
+  placeholders substituted from the bootstrap cluster's Flux namespace
+  ConfigMaps.
+- `post-kind-create-task` (optional, string): a mise task in the active
+  profile run once the kind bootstrap cluster exists; a non-zero exit aborts
+  the bootstrap.
 - `teardown.manual` (optional, string): when set, `kaipr-bootstrap teardown`
-  refuses to run for that environment and prints the text. `azure` uses it
-  until the live acceptance run defines the Azure orphan sweep.
+  refuses to run for that environment and prints the text.
 
 ## Bootstrap and pivot controls
 
 | Variable | Default | Used by |
 |---|---|---|
 | `BOOTSTRAP_CONFIG` | `./bootstrap.toml` | Repository configuration path |
-| `KAIPR_PROFILE` | positional profile, then `bootstrap.default-environment` (`aws` checked in) | Environment selection |
+| `KAIPR_PROFILE` | positional profile, then `bootstrap.default-environment` (`local-host` checked in) | Environment selection |
 | `REGISTRY_PORT` | `5001` | Local-host registry host port |
 | `REGISTRY_READY_RETRIES` | `120` | Local-host registry readiness attempts |
 | `LOCAL_RECONCILE_TIMEOUT` | `15m` | Local-host management and workload reconciliation waits |
 | `CONTAINER_ENGINE` | auto-detect Docker, then Podman | kind and registry engine |
-| `GIT_REPO_URL` | required for GitHub-synced environments (`aws`, `local-talos`, `azure`, `gcp`) | Management Flux Git source |
-| `GITHUB_TOKEN` | required for GitHub-synced environments (`aws`, `local-talos`, `azure`, `gcp`) | PAT with read access to the repository |
+| `GIT_REPO_URL` | required only for GitHub-synced environment kinds | Management Flux Git source |
+| `GITHUB_TOKEN` | required only for GitHub-synced environment kinds | PAT with read access to the repository |
 | `GITHUB_USER` | `git` | Basic-auth username paired with the PAT |
 | `AGE_KEY_FILE` | `age.agekey` | SOPS age private key loaded into `sops-age` |
 | `AGE_PUBLIC_KEY` | derived from `AGE_KEY_FILE` | Public key override during secret creation; must match the key file's public key when both are known (preflight fails fast on a mismatch) |
 | `OCI_REPOSITORY` / `OCI_TAG` | `kaipr` / `latest` | Local-host OCI artifact name |
 | `BOOTSTRAP_PIVOT` | `1` | Any value other than literal `1` skips pivot |
 | `MGMT_KUBECONFIG` | `~/.kube/kaipr-mgmt.yaml` | Exported management kubeconfig for native fallback runs |
-| `MGMT_READY_TIMEOUT` | `40m` for aws, `15m` for local-host, `30m` for local-talos (PXE install + first Talos boot) | Management cluster definition and provisioning waits |
+| `MGMT_READY_TIMEOUT` | `15m` for local-host | Management cluster definition and provisioning waits |
 | `MGMT_POLL_INTERVAL` | `10` seconds | Management cluster definition, provisioning, and node-readiness polls |
 | `BOOTSTRAP_KUBECONTEXT` | config value `kind-mgmt` | Source context required by pivot |
 | `PIVOT_SKIP_DELETE` | `0` | Literal `1` keeps kind after a successful pivot |
 | `KAIPR_RUN_ID` | `{profile}-{timestamp}` | Bootstrap/pivot run identifier for resource tagging; set to override auto-generation |
 | `KAIPR_RUN_TTL` | `86400s` (24h) | Resource time-to-live duration (e.g. `2h`, `30m`, `3600s`), or literal `none` for persistent tags |
-| `KAIPR_REVISION` | Git branch HEAD SHA | Git revision tag for resource tagging; auto-extracted from GitHub during bootstrap |
+| `KAIPR_REVISION` | Git branch HEAD SHA | Git revision tag for resource tagging; auto-extracted during bootstrap |
 | `KAIPR_RUN_KIND` | `manual` | Bootstrap/pivot invocation kind for resource tagging (e.g. `manual`, `scheduled`, `emergency`) |
 
-The pivot's target node-readiness wait uses a fixed 15m budget (`MGMT_NODE_READY_TIMEOUT` in `pivot.sh` and `bootstrap-rs/src/main.rs`). It is not an environment knob and is separate from `MGMT_READY_TIMEOUT`.
+`GIT_REPO_URL` and `GITHUB_TOKEN` do not apply to `local-host`, which syncs
+from the local OCI registry; they are listed because the engine shares the
+interface with the GitHub-synced environment kinds. The pivot's target
+node-readiness wait uses a fixed 15m budget (`MGMT_NODE_READY_TIMEOUT` in
+`pivot.sh` and `bootstrap-rs/src/main.rs`). It is not an environment knob and
+is separate from `MGMT_READY_TIMEOUT`.
 
 ### Toolbox runtime contracts
 
@@ -176,7 +190,8 @@ The toolbox runtime adds five contracts:
   kept regardless of the eventual `CONTAINER_ENGINE`.
 - `AWS_PAGER` is baked into the image as an empty string so the AWS CLI never
   pages its output through `less` (the toolbox is non-interactive and ships no
-  pager). An operator-supplied value via `-e AWS_PAGER=...` overrides the
+  pager). It is set for the engine's AWS path; it has no effect on
+  `local-host`. An operator-supplied value via `-e AWS_PAGER=...` overrides the
   default at runtime.
 
 The container reaches the local registry at `kaipr-registry:5000`. Its
@@ -185,8 +200,8 @@ The container reaches the local registry at `kaipr-registry:5000`. Its
 limitations are documented in [Operations](./operations.md#toolbox-container-primary-interface).
 
 **Design notes (`bootstrap-rs/src/engine.rs`):** engine detection, socket
-resolution, `CONTAINER_HOST` defaulting, and kind-network attach/detach used
-to be implemented separately in `preflight_checks`, a `detect_engine_for_network`
+resolution, `CONTAINER_HOST` defaulting, and kind-network attach/detach used to
+be implemented separately in `preflight_checks`, a `detect_engine_for_network`
 helper that read `Config` defaults instead of the engine `preflight_checks`
 actually resolved, `teardown::detect_engine`, and the toolbox shell entrypoint
 (which also detected and validated the engine before Rust ever ran). All of
@@ -200,31 +215,29 @@ attach/detach checks actual network membership rather than matching Docker's
 and Podman's differently worded "already connected" errors, so it doesn't
 depend on engine- or version-specific error text.
 
-## What bootstrap and pivot do
+## What bootstrap and pivot do (local-host)
 
-1. **Preflight:** validate the environment and required tools, select a running
-   container engine, and perform the GitHub token/age-key checks for
-   GitHub-synced environments (`aws`, `local-talos`, `azure`, `gcp`). A fallback native run
-   requires
-   `kind`, `helm`, `kubectl`, `clusterctl`, and `mise`; OCI-synced
-   environments (`local-host`) also require `flux` and `curl`. The `aws`
-   profile additionally requires `aws` CLI on PATH. For the `aws` profile,
-   preflight checks the EC2 EIP quota per region before any provisioning begins.
-   The Rust CLI derives regions dynamically from `bootstrap.toml`; the shell
-   scripts use a hardcoded region list and must be kept in sync manually if
-   new AWS regions are added, making the Rust CLI the recommended path.
-2. **Bootstrap kind:** create or reuse `mgmt`, start the local registry for
-   local-host, install the Flux Operator, create the Git and SOPS secrets
-   (GitHub-synced environments) or publish the local OCI artifact, install
-   the `FluxInstance`, and watch reconciliation.
+1. **Preflight:** validate the environment and required tools, and select a
+   running container engine. A fallback native run requires `kind`, `helm`,
+   `kubectl`, `clusterctl`, and `mise`; OCI-synced environments like
+   `local-host` also require `flux` and `curl`. The engine's GitHub-token and
+   age-key preflights run only for the GitHub-synced environment kinds.
+2. **Bootstrap kind:** create or reuse `mgmt`, start the local registry,
+   install the Flux Operator, publish the local OCI artifact, install the
+   `FluxInstance`, and watch reconciliation.
 3. **Pivot by default:** wait for the Flux-created management `Cluster`
    definition (a clean first run polls through the reconciliation chain and
    surfaces failed Kustomizations on timeout), wait for the CAPI-managed
-   management cluster, export its kubeconfig, wait for the target nodes (the
-   poll tolerates a nodeless EKS start), install cert-manager, the CAPI
-   operator, and provider CRs at the versions declared in `bootstrap.toml`,
-   suspend Flux in kind, run `clusterctl move`, unpause the moved clusters,
-   seed Flux on the target, and delete kind after the safety checks pass.
+   management cluster, export its kubeconfig, wait for the target nodes,
+   install cert-manager, the CAPI operator, and provider CRs at the versions
+   declared in `bootstrap.toml`, suspend Flux in kind, run `clusterctl move`,
+   unpause the moved clusters, seed Flux on the target, and delete kind after
+   the safety checks pass.
+
+The engine's non-local paths add environment-specific steps (for example an
+EKS EIP-quota preflight and a per-region sweep on the AWS kind, or a
+PXE/Tinkerbell boot on the `local-talos` kind). Those do not run for
+`local-host`.
 
 If a phase fails, fix the cause and rerun the same command. `clusterctl move`
 is re-runnable, and kind remains authoritative until the final deletion.
@@ -239,76 +252,44 @@ kaipr-bootstrap teardown [PROFILE]
 
 | Variable | Default | Effect |
 |---|---|---|
-| `AWS_ONLY` | `0` | Literal `1` skips Kubernetes steps and runs only the AWS orphan sweep; invalid with `local-host` and `local-talos` |
+| `AWS_ONLY` | `0` | Engine recovery knob for the AWS kind only (skips Kubernetes steps and runs only the AWS orphan sweep). Rejected for `local-host` |
 | `FORCE_KIND_DELETE` | `0` | Literal `1` removes the controller host even when CAPI cluster deletion was not confirmed |
-| `CLUSTER_DELETE_TIMEOUT` | `1200` seconds | CAPI cluster deletion wait (aws workloads, local-talos management) |
+| `CLUSTER_DELETE_TIMEOUT` | `1200` seconds | CAPI cluster deletion wait |
 | `PROVIDER_DELETE_TIMEOUT` | `300` seconds | CAPI provider deletion wait |
 | `MGMT_KUBECONFIG` | `~/.kube/kaipr-mgmt.yaml` | Post-pivot controller-host kubeconfig |
 
-Teardown checks required tools before mutation:
-
-| Mode | Required tools |
-|---|---|
-| `local-host` | `kind`, `kubectl`; `AWS_ONLY=1` is rejected |
-| `local-talos` | `kind`, `kubectl`; `AWS_ONLY=1` is rejected |
-| normal `aws` | `kind`, `helm`, `kubectl`, `xargs`; AWS CLI is optional and its absence skips the orphan sweep |
-| `AWS_ONLY=1` | AWS CLI only |
+Teardown checks required tools before mutation. For `local-host` it requires
+`kind` and `kubectl`; `AWS_ONLY=1` is rejected.
 
 Teardown discovers where the CAPI controllers run: the pre-pivot kind cluster,
 the post-pivot self-managed management cluster, or no reachable cluster. In
-the toolbox, the `aws` path first joins the kind network so the pre-pivot kind
-endpoint resolves before discovery. When no cluster is reachable and the run
-was not `AWS_ONLY=1`, teardown still runs the AWS orphan sweep (the recovery
-for a host that is already gone) but exits non-zero so automation does not
-read the skipped Kubernetes side as success; `AWS_ONLY=1` is the explicit
-exit-0 recovery. It then preserves the shell implementation's reverse-order
-and best-effort cleanup semantics.
+the toolbox the run first joins the kind network so the pre-pivot kind
+endpoint resolves before discovery. Teardown binds every kubectl call to that
+discovered target (an explicit kind context or the management kubeconfig; never
+the operator's current context) and treats a *failed* kubectl query as an
+unknown state, never as "nothing left to delete." A failed listing or lookup
+(auth, forbidden, API outage) therefore aborts the teardown with a nonzero exit
+and leaves the management cluster and its controllers intact, so in-flight
+deprovisioning can continue; re-run it once the query works. A successful empty
+listing, a named lookup reporting `NotFound`, or the API server reporting the
+resource type as not installed is the only evidence accepted as "confirmed
+gone" by the deletion guard, which is what allows the management cluster to be
+removed.
 
-Teardown binds every kubectl call to that discovered target (an explicit
-kind context or the management kubeconfig; never the operator's current
-context) and treats a *failed* kubectl query as an unknown state, never as
-"nothing left to delete". A failed listing or lookup (auth, forbidden, API
-outage) therefore aborts the teardown with a nonzero exit and leaves the
-management cluster and its controllers intact, so in-flight CAPA/CABPT
-deprovisioning can continue; re-run it once the query works. A successful
-empty listing, a named lookup reporting `NotFound`, or the API server
-reporting the resource type as not installed is the only evidence
-accepted as "confirmed gone" by the deletion guard, which is what allows the
-management cluster to be removed.
-
-- `local-host`: suspend the workload Kustomization, delete the CAPD workload
-  cluster and wait for its containers to disappear, remove kind or the
-  self-managed management containers, then remove the local registry.
-- `local-talos`: suspend Flux and delete every CAPI Cluster, the management
-  cluster included; the deletion IS the release, and CAPT returns the
-  machine's Hardware to the Tinkerbell pool. The machine is never wiped: it
-  keeps running Talos for the operator. `AWS_ONLY=1` is rejected because
-  there is no AWS orphan sweep for operator-owned hardware.
-- `aws`: suspend Flux, delete and wait for workload CAPI clusters, run the AWS
-  orphan sweep for both workloads and the self-managed management cluster,
-  remove CAPI providers and bootstrap Helm releases when the controller host is
-  still reachable, and enforce the controller-host deletion guard. The sweep
-  covers nodegroups, EKS clusters, RDS, CAPA-tagged
-  VPC resources, versioned S3 buckets, IAM roles and users, and the
-  `clusterawsadm` CloudFormation stack.
-
-`AWS_ONLY=1` is the recovery path when only AWS cleanup remains. A missing tool
-fails preflight before mutation; in the normal AWS path, a missing AWS CLI is
-reported and the orphan sweep is skipped rather than misclassified as an
-empty account.
+For `local-host` the sequence is: suspend the workload Kustomization, delete
+the CAPD workload cluster and wait for its containers to disappear, remove
+either the pre-pivot kind cluster or the post-pivot self-managed management
+containers, and remove the local registry last. (The AWS kind additionally
+runs a cloud orphan sweep; the `local-talos` kind deletes every CAPI Cluster as
+the release. Neither applies here.)
 
 ## Entry-point and parity status
 
 `scripts/toolbox-run.sh bootstrap`, `scripts/toolbox-run.sh pivot`, and
-`scripts/toolbox-run.sh teardown` invoke this CLI in the toolbox container.
-The `pivot` wrapper verb is a named resume path for the rerun-safe default
+`scripts/toolbox-run.sh teardown` invoke this CLI in the toolbox container. The
+`pivot` wrapper verb is a named resume path for the rerun-safe default
 lifecycle; it does not select a separate CLI subcommand.
 
-The three shell scripts remain as native reference and fallback paths until
-full parity runs pass for all environments. Local-host bootstrap, pivot, and
-post-pivot teardown have completed parity runs. AWS full-parity runs still gate
-script retirement. The local-talos environment has completed its hardware
-acceptance run (issue #105, closed) through the CLI; the documented
-PXE/Tinkerbell-Workflow provisioning transport still needs a run (issue #225).
-Toolbox releases are published (see above); no Podman-host acceptance run is
-recorded.
+The three shell scripts remain as native reference and fallback paths.
+Local-host bootstrap, pivot, and post-pivot teardown have completed parity
+runs against them.

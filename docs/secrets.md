@@ -1,29 +1,39 @@
 # Secret management
 
+This repository currently carries **no SOPS-encrypted secrets in-tree**. The
+`local-host` environment syncs from a local OCI registry (not GitHub), needs no
+cloud credentials, and the AI platform's OpenAI-compatible path needs no API
+key. There is nothing to encrypt today.
+
+The SOPS + age machinery is still wired in because the scaffolding is derived
+from [krops](https://github.com/polarsquad/krops), where in-tree secrets are
+the norm. If you add an environment or a component that needs a secret, use the
+pattern below so Flux can decrypt it at reconcile time.
+
+## The pattern
+
 In-cluster secrets are managed with [SOPS](https://github.com/getsops/sops) +
 [age](https://github.com/FiloSottile/age), so encrypted manifests can live
 safely in Git and Flux decrypts them at reconcile time.
 
 - **`.sops.yaml`** declares the age *public* key (safe to commit) and a rule
-  that encrypts only `data`/`stringData` fields of any `*.sops.yaml` file under
-  `mgmt/aws/`, `mgmt/azure/`, or `mgmt/gcp/`.
-- The age *private* key lives in `age.agekey` (gitignored). The bootstrap
-  loads it into the cluster as the `sops-age` secret in `flux-system`.
+  that encrypts only `data`/`stringData` fields of any `*.sops.yaml` file. The
+  checked-in rule currently targets `mgmt/aws/`, `mgmt/azure/`, or
+  `mgmt/gcp/`; extend the `path_regex` to whatever path you add.
+- The age *private* key lives in `age.agekey` (gitignored). Bootstrap loads it
+  into the cluster as the `sops-age` secret in `flux-system`.
+- A Flux `Kustomization` that consumes an encrypted file sets
+  `spec.decryption.provider: sops`.
 
-SOPS-encrypted secrets in this repo (each referenced by a Flux `Kustomization`
-with `spec.decryption.provider: sops`):
-
-| File | Consumed by | Purpose |
-|---|---|---|
-| `mgmt/aws/capi-providers/capa-system/aws-credentials.sops.yaml` | `capa-system` | CAPA controller AWS credentials |
-| `mgmt/aws/infrastructure/ack-controllers/aws-credentials.sops.yaml` | `ack-controllers` | ACK S3/RDS/IAM controller AWS credentials (shared-credentials-file format) |
-| `mgmt/aws/addons/flux-apps/flux-pull-secret.sops.yaml` | `flux-apps` | GitHub PAT pull secret (basic auth), delivered to each workload cluster via ClusterResourceSet so its Flux can clone this (private) repo. The `mgmt/azure/addons/flux-apps/` and `mgmt/gcp/addons/flux-apps/` copies serve the same role for their environments. |
-| `mgmt/aws/infrastructure/konflate/konflate-token.sops.yaml` | `konflate` | `KONFLATE_TOKEN` (read-only GitHub PAT so konflate can list PRs and clone this private repo) and `KONFLATE_WRITE_TOKEN` (write-back credential konflate uses to post the PR summary comment and the `Konflate` commit status) |
+> The AI platform's OpenAI-compatible path needs no API key; the CPU simulator
+> produces model-shaped completions without a backend. If you point the backend
+> at an external model, inject the key as a Secret referenced by the backend,
+> never as a literal. See [Inference platform](./inference.md).
 
 ## First-time setup
 
-Every SOPS step is a mise task run in the toolbox as your own user, so the
-key file it writes is owned by you (the run shape is defined in
+Every SOPS step is a mise task run in the toolbox as your own user, so the key
+file it writes is owned by you (the run shape is defined in
 [Helper tasks in the toolbox](./operations.md#helper-tasks-in-the-toolbox)).
 The commands below use this shell function for brevity:
 
@@ -37,16 +47,16 @@ kaipr_mise() {
 }
 ```
 
-Generate the key (refuses to overwrite an existing `age.agekey`) and read
-the public key it prints:
+Generate the key (refuses to overwrite an existing `age.agekey`) and read the
+public key it prints:
 
 ```sh
 kaipr_mise run sops-keygen        # creates ./age.agekey and prints the public key
 ```
 
 `AGE_KEY_FILE` (in `.env`, default `age.agekey`) is the bootstrap input;
-`SOPS_AGE_KEY_FILE` (set by `kaipr_mise` above) tells the SOPS CLI which
-private key to use while editing encrypted files.
+`SOPS_AGE_KEY_FILE` (set by `kaipr_mise` above) tells the SOPS CLI which private
+key to use while editing encrypted files.
 
 Put the printed public key into the `age:` field of `.sops.yaml`, then
 re-encrypt every `*.sops.yaml` under `mgmt/` so they target your key:
@@ -55,105 +65,18 @@ re-encrypt every `*.sops.yaml` under `mgmt/` so they target your key:
 kaipr_mise run sops-updatekeys
 ```
 
-## Setting / rotating AWS credentials
-
-Rotate all consumers of the affected key together: the gitignored `.env`,
-CAPA's encrypted profile, and the management ACK shared credentials file.
-Updating CAPA alone leaves ACK using its previous credential. For a suspected
-compromise, disable the old key immediately as described in
-[Credential revocation](./aws-iam.md#e2e-account-incident-and-credential-revocation),
-even if controllers temporarily lose AWS access.
-
-1. Validate the replacement with `aws sts get-caller-identity` in the intended
-   credential context; check the account and principal against the environment
-   being managed. Update `.env` before generating CAPA's profile: mise loads
-   that file ahead of process environment values.
-2. Update both encrypted manifests using the commands below. Preserve CAPA's
-   generated profile and ACK's `[default]` profile, including a session token
-   when using temporary credentials. Keep the existing age recipient.
+## Encrypting and decrypting a secret
 
 ```sh
-# CAPA: generate the base64 profile. clusterawsadm reads AWS_ACCESS_KEY_ID /
-# AWS_SECRET_ACCESS_KEY / AWS_SESSION_TOKEN / AWS_REGION from .env first
-# (mise env_file), then from the process environment:
-kaipr_mise -E aws run aws-credentials
-# Put the value into stringData.AWS_B64ENCODED_CREDENTIALS, then encrypt:
-$EDITOR mgmt/aws/capi-providers/capa-system/aws-credentials.sops.yaml
-kaipr_mise run sops-encrypt mgmt/aws/capi-providers/capa-system/aws-credentials.sops.yaml
+# Encrypt a manifest in place (the file must be named *.sops.yaml and match
+# the .sops.yaml rule):
+kaipr_mise run sops-encrypt path/to/secret.sops.yaml
 
-# ACK: standard AWS shared-credentials-file format under stringData.credentials:
-$EDITOR mgmt/aws/infrastructure/ack-controllers/aws-credentials.sops.yaml
-kaipr_mise run sops-encrypt mgmt/aws/infrastructure/ack-controllers/aws-credentials.sops.yaml
+# Decrypt to stdout without changing the file:
+kaipr_mise run sops-decrypt path/to/secret.sops.yaml
 ```
 
-3. Decrypt both manifests in a local process, decode CAPA's base64 profile,
-   and compare its access key, secret key, and optional session token with
-   ACK's profile and the intended replacement. Report only match/mismatch;
-   do not print credentials or put decrypted material in tracked files or
-   logs. If the age identity cannot decrypt either manifest, stop rather than
-   assuming its encrypted value matches.
-4. Run `mise run validate` and review that both manifests still encrypt all
-   credential fields before committing. A Git update is not live adoption:
-   after merge to `main`, inspect Flux reconciliation and verify successful
-   AWS operations from CAPA and each management ACK controller (S3, RDS,
-   IAM). Also verify any running bootstrap process has adopted the replacement.
-   Secret reconciliation alone does not prove a process reloaded its credential.
-5. For a routine rotation, retire the old key only after those checks. For an
-   incident, keep it disabled throughout recovery and delete it after verifying
-   replacement adoption; do not reactivate it to restore reconciliation.
-
-View a decrypted secret without changing it:
-
-```sh
-kaipr_mise run sops-decrypt <file>.sops.yaml
-```
-
-## Azure credentials
-
-Azure holds no secret at rest (issue #236): CAPZ and the bundled ASO
-authenticate with workload identity, so there is nothing to rotate here. The
-only Azure credentials involved are the operator's own `az login` session and
-the age key used for the remaining SOPS-encrypted files above
-([azure.md](./azure.md) covers the identity flow).
-
-## Setting / rotating the GitHub PAT
-
-The management cluster's own `flux-github-pat` secret is created imperatively
-at bootstrap (from `GITHUB_TOKEN` in `.env`) and is **not** in Git; Flux
-needs it to clone the repo before it could ever decrypt anything (a
-chicken-and-egg constraint). The workload clusters' copy *is* in Git
-(`flux-pull-secret.sops.yaml`) because the management cluster's Flux decrypts
-it before shipping it out via ClusterResourceSet.
-
-To set or rotate the PAT in the workload clusters' pull secret:
-
-```sh
-# Decrypt in place, put the PAT into the nested stringData.password field,
-# then re-encrypt:
-kaipr_mise x -- sops --decrypt --in-place --input-type yaml --output-type yaml \
-  mgmt/aws/addons/flux-apps/flux-pull-secret.sops.yaml
-$EDITOR mgmt/aws/addons/flux-apps/flux-pull-secret.sops.yaml
-kaipr_mise run sops-encrypt mgmt/aws/addons/flux-apps/flux-pull-secret.sops.yaml
-```
-
-Remember to also update `GITHUB_TOKEN` in `.env` so the next bootstrap uses
-the new token.
-
-## Setting and rotating the konflate tokens
-
-What each token does is covered in [PR review: konflate](./konflate.md).
-
-```sh
-# Decrypt in place, set stringData.KONFLATE_TOKEN (a read-only GitHub PAT) and
-# stringData.KONFLATE_WRITE_TOKEN (a fine-grained PAT with Pull requests +
-# Commit statuses R/W on this repo, or a classic PAT with `repo` scope),
-# then re-encrypt:
-kaipr_mise x -- sops --decrypt --in-place --input-type yaml --output-type yaml \
-  mgmt/aws/infrastructure/konflate/konflate-token.sops.yaml
-$EDITOR mgmt/aws/infrastructure/konflate/konflate-token.sops.yaml
-kaipr_mise run sops-encrypt mgmt/aws/infrastructure/konflate/konflate-token.sops.yaml
-```
-
-Keep the two tokens separate: the read token (`KONFLATE_TOKEN`) should carry
-no write scope, and the write token is used only for konflate's write-back
-(the PR summary comment and the `Konflate` commit status).
+Verify before committing that only the `data`/`stringData` fields are encrypted
+and the rest of the manifest is still readable, and run `mise run validate`.
+A Git update is not live adoption: after merge to `main`, confirm Flux reconciled
+the decryption on the target.

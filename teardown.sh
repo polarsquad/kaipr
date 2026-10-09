@@ -103,21 +103,35 @@ preflight_checks
 
 if [ "$PROFILE" = local-host ]; then
   if kind get clusters 2>/dev/null | grep -q '^mgmt$'; then
-    kubectl config use-context kind-mgmt >/dev/null
+    # Bind the mgmt-targeted kubectl calls to an exported kubeconfig instead
+    # of switching the caller's default context: that switch mutates the
+    # caller's kubeconfig and aborts the whole script (set -e) when that
+    # file has no context for this kind cluster.
+    MGMT_KUBECONFIG_TMP="$(mktemp)"
+    trap 'rm -f "$MGMT_KUBECONFIG_TMP"' EXIT
+    kind get kubeconfig --name mgmt > "$MGMT_KUBECONFIG_TMP"
 
-    # Prevent Flux from recreating the Cluster while CAPD removes its Docker
-    # machines, then wait before deleting the management cluster/controller.
-    kubectl patch kustomization docker-workload-cluster -n flux-system \
+    # Prevent Flux from recreating the Clusters while CAPD removes their
+    # Docker machines, then wait before deleting the management
+    # cluster/controller. Pre-pivot, the 'local-management' CAPD cluster and
+    # its kind-management-cluster Kustomization both live on the kind mgmt
+    # cluster, so both must be deleted before 'kind delete' or its node/LB
+    # containers are orphaned on the host.
+    kubectl --kubeconfig "$MGMT_KUBECONFIG_TMP" patch kustomization docker-workload-cluster -n flux-system \
       --type merge -p '{"spec":{"suspend":true}}' >/dev/null 2>&1 || true
-    if kubectl get cluster local-workload -n default >/dev/null 2>&1; then
-      echo ">>> Deleting CAPD workload cluster 'local-workload'..."
-      kubectl delete cluster local-workload -n default --wait=false
-      if ! kubectl wait --for=delete cluster/local-workload -n default --timeout=5m; then
-        echo "ERROR: CAPD workload cluster did not finish deleting; leaving mgmt intact" >&2
-        exit 1
+    kubectl --kubeconfig "$MGMT_KUBECONFIG_TMP" patch kustomization docker-management-cluster -n flux-system \
+      --type merge -p '{"spec":{"suspend":true}}' >/dev/null 2>&1 || true
+    for cluster_name in local-workload local-management; do
+      if kubectl --kubeconfig "$MGMT_KUBECONFIG_TMP" get cluster "$cluster_name" -n default >/dev/null 2>&1; then
+        echo ">>> Deleting CAPD cluster '$cluster_name'..."
+        kubectl --kubeconfig "$MGMT_KUBECONFIG_TMP" delete cluster "$cluster_name" -n default --wait=false
+        if ! kubectl --kubeconfig "$MGMT_KUBECONFIG_TMP" wait --for=delete "cluster/$cluster_name" -n default --timeout=5m; then
+          echo "ERROR: CAPD cluster '$cluster_name' did not finish deleting; leaving mgmt intact" >&2
+          exit 1
+        fi
+        echo "✓   CAPD cluster '$cluster_name' deleted"
       fi
-      echo "✓   CAPD workload cluster 'local-workload' deleted"
-    fi
+    done
 
     echo ">>> Deleting kind management cluster 'mgmt'..."
     kind delete cluster --name mgmt

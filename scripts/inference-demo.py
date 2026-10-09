@@ -115,7 +115,7 @@ async function go() {
   input.value = '';
   send.disabled = true;
   addMsg('you', content);
-  status.textContent = 'requesting&hellip;';
+  status.textContent = 'requesting…';
   const t0 = performance.now();
   try {
     const r = await fetch('/v1/chat/completions', {
@@ -129,16 +129,18 @@ async function go() {
     });
     const ms = Math.round(performance.now() - t0);
     if (!r.ok) {
-      const err = await r.json().catch(() => ({}));
+      const text = await r.text();
+      let err;
+      try { err = JSON.parse(text); } catch { err = text; }
       addMsg('gateway', `HTTP ${r.status} ${esc(r.statusText)}
-${JSON.stringify(err, null, 2)}`);
+${typeof err === 'string' ? err : JSON.stringify(err, null, 2)}`);
       status.textContent = '';
       return;
     }
     const j = await r.json();
     const reply = j.choices?.[0]?.message?.content ?? JSON.stringify(j, null, 2);
     const u = j.usage || {};
-    const pod = r.headers.get('x-inference-pod') || '&mdash;';
+    const pod = esc(r.headers.get('x-inference-pod') || '-');
     addMsg('model', reply,
       `served by <b>${pod}</b> &middot; ${u.prompt_tokens ?? '?'} in / ` +
       `${u.completion_tokens ?? '?'} out tokens &middot; ${ms} ms`);
@@ -161,7 +163,8 @@ input.focus();
 </html>
 """
 
-# Upstream response headers the page renders per message.
+# Upstream response headers passed through to the browser; the page
+# renders only X-Inference-Pod (usage comes from the JSON body).
 PASS_HEADERS = ("X-Inference-Pod", "X-Inference-Tokens-Usage")
 
 

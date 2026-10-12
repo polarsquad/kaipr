@@ -44,7 +44,6 @@ Azure, GCP, Talos) and its tests exercise them against a fixture - the
   - `clusters/`: the docker workload cluster class and the management
     cluster definition.
 - `workload/local-host/`: synced by the WORKLOAD cluster's Flux.
-  - `podinfo/`: the reference app, a smoke test.
   - `ai-platform/`: the AI inference platform. `crd/` is the CRD layer
     (namespace, vendored Gateway API + Inference Extension CRDs, the
     agentgateway.dev CRDs HelmRelease); `app/` is the app layer

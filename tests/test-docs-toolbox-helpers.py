@@ -3,7 +3,7 @@
 task that interacts with an environment runs through the kaipr-toolbox
 container, and the README carve-out that called moving them a follow-up is
 gone. Host-side by design and therefore allowed: validate, docs-*, and
-podinfo-port-forward (the browser is on the host)."""
+inference-demo (the browser is on the host)."""
 import re
 import subprocess
 import sys

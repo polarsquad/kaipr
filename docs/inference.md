@@ -124,7 +124,7 @@ and the two upstream manifests from the release links in
 
 The AI layer is delivered by Flux from the same OCI artifact as the rest of
 the workload cluster. After a local-host bootstrap run, the root Kustomization
-applies `podinfo` and creates the two AI Flux Kustomizations; the CRD layer
+creates the two AI Flux Kustomizations; the CRD layer
 (`local-ai-platform-crd`) reconciles, then the app layer
 (`local-ai-platform`) follows as soon as the CRD layer is Ready
 (`dependsOn`).
@@ -179,7 +179,7 @@ rendered reply shows the serving pod, token usage, and latency. Stdlib only,
 and no cluster object: the page exercises the existing
 `POST /v1/chat/completions` route.
 
-Host-side, like `podinfo-port-forward` (the browser is on the host):
+Host-side (the browser is on the host):
 
 ```sh
 mise -E local-host run inference-demo

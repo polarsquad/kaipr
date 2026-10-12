@@ -25,8 +25,7 @@ Flux or CAPI reconciliation architecture.
 `local-host` replaces cloud providers with local Docker containers (CAPD) and
 replaces GitHub with a local in-memory OCI registry (`kaipr-registry:5000`). It
 provisions a one-control-plane/one-worker workload cluster and reconciles the
-`podinfo` demo application and the `ai-platform` end to end on a single host.
-No GitHub PAT, no cloud account, no GPU.
+`ai-platform` end to end on a single host. No GitHub PAT, no cloud account, no GPU.
 
 See the architecture diagram in [docs/local-host-infra.svg](local-host-infra.svg).
 
@@ -69,9 +68,7 @@ flowchart TD
         CP[1 Control Plane container]
         WORKER[1 Worker container]
         WF["Flux (syncs workload/local-host from OCI)"]
-        APP["podinfo demo application<br/>port-forward to localhost:9898"]
         AIP["ai-platform: agentgateway + InferencePool<br/>+ llm-d Router EPP + model server"]
-        WF --> APP
         WF --> AIP
     end
 
@@ -92,7 +89,6 @@ cert-manager ▶ capi-operator ▶ capi-system ▶ capd-system ▶ clusters (loc
 Workload cluster (delivered by the workload Flux instance from the
 same OCI artifact):
 ```
-podinfo (HelmRelease)
 ai-platform (local-ai-platform-crd Kustomization, then local-ai-platform:
   agentgateway, model-server, inference, policies - dependsOn the CRD layer)
 ```
@@ -103,10 +99,10 @@ ai-platform (local-ai-platform-crd Kustomization, then local-ai-platform:
    workload cluster (HelmChartProxy) and applies a `FluxInstance` that syncs
    `workload/local-host/` from the local OCI artifact.
 2. The workload cluster's Flux reconciles `workload/local-host/` from that
-   artifact. The root Kustomization applies `podinfo` and creates two Flux
-   Kustomizations: the AI CRD layer (`ai-platform/crd/`) and the AI app layer
-   (`ai-platform/app/`), the latter `dependsOn` the former so the CRDs exist
-   before the AI objects are dry-run. See [Inference platform](./inference.md).
+   artifact. The root Kustomization creates two Flux Kustomizations: the AI
+   CRD layer (`ai-platform/crd/`) and the AI app layer (`ai-platform/app/`),
+   the latter `dependsOn` the former so the CRDs exist before the AI objects
+   are dry-run. See [Inference platform](./inference.md).
 3. Inside the AI app layer, the components reconcile in this order: the
    `agentgateway` control plane, then the model server, the `InferencePool`
    + llm-d Router EPP, and the LLM policies that bind them together.

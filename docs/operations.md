@@ -156,9 +156,9 @@ Rules that apply to every helper run:
   '{{.Host.RemoteSocket.Path}}'`).
 
 Host-side on purpose: `mise run validate` (repository development, see
-[Validation](#validation)) and `mise -E local-host run podinfo-port-forward`
-and `mise -E local-host run inference-demo` (the browser is on the host; a
-toolbox form is shown with the local-host chain below).
+[Validation](#validation)) and `mise -E local-host run inference-demo` (the
+browser is on the host; a toolbox form is shown with the local-host chain
+below).
 
 ### Verifying a toolbox release
 
@@ -230,8 +230,8 @@ Flux then installs the CAPI core, kubeadm, and Docker infrastructure providers
 and creates `local-workload`, a one-control-plane/one-worker Kubernetes cluster
 in containers. The management cluster then installs a Flux Operator and
 FluxInstance on `local-workload`; that instance reconciles
-`workload/local-host/` from the same OCI artifact, bringing up both the
-`podinfo` demo app and the `ai-platform` tree. CAPD is intended for local
+`workload/local-host/` from the same OCI artifact, bringing up the
+`ai-platform` tree. CAPD is intended for local
 development and testing, not production.
 
 Together, these stages make `local-host` an end-to-end environment: one command
@@ -328,7 +328,7 @@ against the host copy from
 ### Verifying the AI platform
 
 The workload cluster reconciles `workload/local-host/ai-platform/` from the
-same OCI artifact as `podinfo`: the CRD layer (`crd/`) first, then the app
+same OCI artifact: the CRD layer (`crd/`) first, then the app
 layer (`app/`) once the CRDs are Ready. Verify the stages of the request path:
 
 ```sh
@@ -360,28 +360,6 @@ curl -s http://localhost:18080/v1/chat/completions \
 
 The full component list, the pinned versions, the CRD prerequisites, and the
 vLLM overlay for a real model are in [Inference platform](./inference.md).
-
-### Viewing podinfo
-
-The local workload Flux instance installs Podinfo from its OCI Helm chart.
-Open it in a host browser by running the port-forward in a separate terminal.
-This is the one helper that stays a host task on purpose (the browser is on the
-host); it needs a host `kubectl` and a kubeconfig with the `127.0.0.1` endpoint,
-which `mise -E local-host run kubeconfigs` on the host produces:
-
-```sh
-mise -E local-host run podinfo-port-forward
-```
-
-On an engine-only host, publish the port from a toolbox run on the kind network
-instead:
-
-```sh
-docker run --rm -it --network kind -p 9898:9898 \
-  -v "$PWD:/workspace" -w /workspace -e MISE_AUTO_INSTALL=0 \
-  --entrypoint kubectl "$TOOLBOX_IMAGE" --kubeconfig local-workload.kubeconfig \
-  port-forward --namespace podinfo --address 0.0.0.0 service/podinfo 9898:9898
-```
 
 The workload uses Kubernetes v1.36.4. A CAPI ClusterResourceSet installs a
 pinned Kindnet daemon as its CNI before the Flux addons are delivered. The
@@ -426,10 +404,10 @@ flux get kustomizations --watch
 The host form of the `kubeconfigs` task reads the management kubeconfig before
 it can export the workload one, so run it with the host copy exported; without
 `KAIPR_TOOLBOX` it rewrites the workload endpoint to `127.0.0.1`, and
-`podinfo-port-forward` then needs no further changes:
+`inference-demo` then needs no further changes:
 
 ```sh
-mise -E local-host run podinfo-port-forward
+mise -E local-host run inference-demo
 ```
 
 The published port belongs to the `local-management-lb` container and stays the
@@ -476,7 +454,7 @@ docker run --rm -it \
   --entrypoint mise "$TOOLBOX_IMAGE" -E local-host run kubeconfigs
 docker run --rm --network kind -v "$PWD:/workspace" -w /workspace \
   --entrypoint flux "$TOOLBOX_IMAGE" --kubeconfig local-workload.kubeconfig get all --all-namespaces
-# then the podinfo and AI-platform verification above, and browse to http://localhost:9898
+# then the AI-platform verification above
 ```
 
 The toolbox form above needs no rewrite: the runs stay on the `kind` network.

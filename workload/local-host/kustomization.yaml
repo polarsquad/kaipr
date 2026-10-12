@@ -9,7 +9,6 @@ kind: Kustomization
 # app objects consume CRDs that do not exist on a fresh cluster, so the CRDs
 # get their own Flux Kustomization and the app layer gates on it:
 #
-#   - podinfo/           applied directly by the root (no CRD prerequisites)
 #   - flux-ks.yaml       the two AI Flux Kustomizations:
 #       local-ai-platform-crd  path ./ai-platform/crd  (the CRDs, no
 #                              CR-consuming objects)
@@ -21,5 +20,4 @@ kind: Kustomization
 # and a Kustomization cannot depend on a resource it creates itself
 # (first-boot deadlock). See workload/local-host/flux-ks.yaml.
 resources:
-  - podinfo
   - flux-ks.yaml

@@ -27,8 +27,8 @@ same kind of work krops does for AWS/Azure/GCP (see
 ## Adding apps to the workload cluster
 
 `workload/local-host/` is the overlay that the workload Flux instance
-reconciles, delivered wholesale from the OCI artifact. Follow the `podinfo`
-pattern:
+reconciles, delivered wholesale from the OCI artifact. Add the app as its own
+subdirectory:
 
 1. Create `workload/local-host/<app>/` with a `kustomization.yaml` listing the
    app's manifests, and a `flux-ks.yaml` defining the Flux `Kustomization`

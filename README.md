@@ -114,7 +114,6 @@ Linux hosts need no rewrite. See
 │       └── clusters/           #   management + docker workload cluster class
 ├── workload/
 │   └── local-host/             # workload cluster apps, delivered from Git
-│       ├── podinfo/            #   the reference app (smoke test)
 │       ├── ai-platform/        #   the AI inference platform
 │       │   ├── crd/            #     CRDs: vendored gateway-api + agentgateway-crds
 │       │   └── app/            #     agentgateway, model-server, inference, policies

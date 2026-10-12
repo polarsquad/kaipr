@@ -105,21 +105,21 @@
   <rect x="470" y="690" width="300" height="62" rx="8" fill="#1B2C23" stroke="#68C5EB" stroke-opacity="0.6" stroke-width="1.2"/>
   <text x="620" y="713" text-anchor="middle" font-family="DejaVu Sans" font-size="12.5" fill="#D4E2DA">syncs OCI artifact path</text>
   <text x="620" y="736" text-anchor="middle" font-family="DejaVu Sans Mono" font-size="16" fill="#68C5EB">workload/local-host/</text>
-  <!-- podinfo app chip -->
+  <!-- ai-platform app chip -->
   <rect x="370" y="782" width="380" height="70" rx="10" fill="#1B2C23" stroke="#284637" stroke-width="1.2"/>
   <g stroke="#E8A868" stroke-width="1.8" fill="none">
-    <circle cx="410" cy="810" r="7"/>
-    <path d="M397,838 a13,13 0 0 1 26,0"/>
+    <path d="M410,799 L426,808 L426,826 L410,835 L394,826 L394,808 Z"/>
+    <circle cx="410" cy="817" r="4"/>
   </g>
-  <text x="442" y="812" font-family="DejaVu Sans Mono" font-size="17" font-weight="bold" fill="#FFFFFF">podinfo</text>
-  <text x="442" y="836" font-family="DejaVu Sans" font-size="14.5" fill="#D4E2DA">demo app &#183; reachable from your laptop</text>
+  <text x="442" y="812" font-family="DejaVu Sans Mono" font-size="17" font-weight="bold" fill="#FFFFFF">ai-platform</text>
+  <text x="442" y="836" font-family="DejaVu Sans" font-size="14.5" fill="#D4E2DA">AI inference gateway &#183; model server</text>
   <!-- lifecycle strip -->
   <rect x="314" y="872" width="492" height="42" rx="8" fill="#68C5EB" fill-opacity="0.14"/>
   <text x="560" y="899" text-anchor="middle" font-family="DejaVu Sans" font-size="16" font-weight="bold" fill="#68C5EB">Manages application lifecycle</text>
 
   <!-- port-forward arrow -->
   <path d="M830,817 H1000" fill="none" stroke="#859D91" stroke-width="2" marker-end="url(#arrow-gray)"/>
-  <text x="915" y="843" text-anchor="middle" font-family="DejaVu Sans Mono" font-size="15" fill="#E8A868">localhost:9898</text>
+  <text x="915" y="843" text-anchor="middle" font-family="DejaVu Sans Mono" font-size="15" fill="#E8A868">localhost:18080</text>
 
   <!-- ===== legend strip ===== -->
   <rect x="64" y="992" width="966" height="66" rx="12" fill="#131E18" stroke="#284637" stroke-width="1.5"/>
@@ -171,8 +171,8 @@
   <text x="1140" y="682" text-anchor="middle" font-family="DejaVu Sans" font-size="15" font-weight="bold" fill="#0C120F">4</text>
   <text x="1168" y="672" font-family="DejaVu Sans" font-size="17" fill="#D4E2DA">Workload Flux syncs the same OCI</text>
   <text x="1168" y="698" font-family="DejaVu Sans" font-size="17" fill="#D4E2DA">artifact under <tspan font-family="DejaVu Sans Mono" font-size="16" fill="#68C5EB">workload/local-host/</tspan></text>
-  <text x="1168" y="724" font-family="DejaVu Sans" font-size="17" fill="#D4E2DA">and reconciles <tspan font-family="DejaVu Sans Mono" font-size="16" fill="#FFFFFF">podinfo</tspan>; verify at</text>
-  <text x="1168" y="750" font-family="DejaVu Sans Mono" font-size="16" fill="#E8A868">http://localhost:9898<tspan font-family="DejaVu Sans" font-size="17" fill="#D4E2DA">.</tspan></text>
+  <text x="1168" y="724" font-family="DejaVu Sans" font-size="17" fill="#D4E2DA">and reconciles <tspan font-family="DejaVu Sans Mono" font-size="16" fill="#FFFFFF">ai-platform</tspan>;</text>
+  <text x="1168" y="750" font-family="DejaVu Sans" font-size="17" fill="#D4E2DA">verify with a chat request.</text>
   <line x1="1122" y1="788" x2="1504" y2="788" stroke="#1F362A" stroke-width="1.2"/>
 
   <!-- golden rule -->

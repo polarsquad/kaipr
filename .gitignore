@@ -16,7 +16,7 @@ age.agekey
 local-workload.kubeconfig
 # Toolbox container kubeconfig state (scripts/toolbox-run.sh)
 .kube/
-# gcloud state shared by the host and the toolbox (mise.gcp.toml CLOUDSDK_CONFIG)
+# gcloud state shared by the host and the toolbox (scripts/toolbox-run.sh CLOUDSDK_CONFIG)
 .gcloud/
 airgap/archives/
 airgap/rendered/

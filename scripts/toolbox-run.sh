@@ -15,8 +15,8 @@ Env:
   TOOLBOX_IMAGE   image reference (default: ghcr.io/polarsquad/kaipr-toolbox:latest;
                   build locally with: docker build -f bootstrap-rs/Dockerfile \\
                     -t kaipr-toolbox:dev . && TOOLBOX_IMAGE=kaipr-toolbox:dev)
-  KAIPR_PROFILE aws | azure | gcp | local-host | local-talos
-                  (default: the mise environment in use)
+  KAIPR_PROFILE local-host (the only environment this reference ships;
+                  default: the mise environment in use)
 EOF
   exit 2
 }
@@ -121,7 +121,8 @@ esac
 mkdir -p .kube
 KUBECONFIG_IN=/workspace/.kube/kind.yaml
 
-# Repo-local .gcloud/ directory, shared with the host gcp session (docs/gcp.md).
+# Repo-local .gcloud/ directory (generic wrapper wiring; asserted by
+# tests/test-toolbox-run-exec.py).
 CLOUDSDK_CONFIG_IN=/workspace/.gcloud
 
 # Splits TOOLBOX_ENV_SPEC into mutable/immutable -e flags; see

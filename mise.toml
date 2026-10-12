@@ -119,20 +119,14 @@ description = "Bootstrap the management kind cluster, hand off to Flux/GitOps, t
 run = "scripts/toolbox-run.sh bootstrap"
 
 [tasks.pivot]
-description = "Pivot the management cluster from local kind to the CAPI-managed management cluster (aws=CAPA/EKS, local-host=CAPD) (toolbox container; native path: ./pivot.sh)"
+description = "Pivot the management cluster from local kind to the CAPI-managed management cluster (local-host=CAPD) (toolbox container; native path: ./pivot.sh)"
 run = "scripts/toolbox-run.sh pivot"
 
 [tasks.mgmt-kubeconfig]
 description = "Export the management-cluster kubeconfig to ~/.kube/kaipr-mgmt.yaml (toolbox: /root/.kube, persisted as .kube/kaipr-mgmt.yaml)"
 run = '''
 if [ -z "${MGMT_CLUSTER:-}" ]; then
-  case "${KAIPR_PROFILE:-aws}" in
-    local-host) MGMT_CLUSTER=local-management;;
-    local-talos) MGMT_CLUSTER=local-talos-management;;
-    azure) MGMT_CLUSTER=swedencentral-management;;
-    gcp) MGMT_CLUSTER=europe-north1-management;;
-    *) MGMT_CLUSTER=eu-north-1-management;;
-  esac
+  MGMT_CLUSTER=local-management
 fi
 MGMT_KUBECONFIG="${MGMT_KUBECONFIG:-$HOME/.kube/kaipr-mgmt.yaml}"
 clusterctl get kubeconfig "$MGMT_CLUSTER" -n default > "$MGMT_KUBECONFIG"
@@ -140,7 +134,7 @@ chmod 600 "$MGMT_KUBECONFIG"
 # Host-only rewrite: inside the toolbox (KAIPR_TOOLBOX=1, on the kind
 # network) the recorded endpoint already resolves and 127.0.0.1 would be
 # the container itself. Same rule as the CLI's should_rewrite_capd_endpoint.
-if [ "${KAIPR_PROFILE:-aws}" = local-host ] && [ "${KAIPR_TOOLBOX:-0}" != 1 ]; then
+if [ "${KAIPR_PROFILE:-local-host}" = local-host ] && [ "${KAIPR_TOOLBOX:-0}" != 1 ]; then
   # CAPD records the load balancer's container-network IP, which is not
   # routable from macOS. Point at the port published on localhost instead.
   engine="${CONTAINER_ENGINE:-docker}"
@@ -162,10 +156,6 @@ kubectl --kubeconfig "$MGMT_KUBECONFIG" config rename-context \
 echo "Wrote ${MGMT_KUBECONFIG}"
 echo "Use with: KUBECONFIG=${MGMT_KUBECONFIG} kubectl get clusters"
 '''
-
-[tasks.aws-credentials]
-description = "Export AWS credentials as a profile string for SOPS-encrypted secrets"
-run = "clusterawsadm bootstrap credentials encode-as-profile"
 
 [tasks.teardown]
 description = "Tear down all infrastructure created by bootstrap (toolbox container; native path: ./teardown.sh)"

@@ -14,8 +14,8 @@ dependency dashboard issue.
 
 What this repository actually ships, Renovate manages:
 
-- `mise.toml` and `mise.local-host.toml`: tool pins (kubectl, flux, age,
-  kind, clusterctl, helm, python, uv, kustomize) and the task layers.
+- `mise.toml` and `mise.local-host.toml`: tool pins (go, kubectl, python,
+  kind, helm, clusterctl, flux2, sops, age, uv, zarf) and the task layers.
 - `bootstrap.toml`: the Flux Operator, cert-manager, and CAPI Operator chart
   pins consumed by `kaipr-bootstrap`. One annotation-driven custom manager
   reads the adjacent `# renovate:` metadata. `mise run validate` cross-checks
@@ -33,8 +33,7 @@ What this repository actually ships, Renovate manages:
 - `kindest/node` image tags in the local-host cluster classes (the management
   cluster, the workload cluster, and the kind bootstrap node all run the same
   version).
-- `pyproject.toml` and `uv.lock`: repository test dependencies (pytest)
-  through the native Python managers.
+- `pyproject.toml` and `uv.lock`: the repository Python lint tooling (ruff).
 - `pivot.sh`: imperative cert-manager and CAPI Operator chart pins, grouped
   with `bootstrap.toml` and the Git manifests so a bump lands in one PR.
 - `.github/workflows/`: GitHub Actions references.
@@ -44,21 +43,16 @@ covers `kindest/node` and the `kubectl` pin (both track a literal Kubernetes
 release version), and the `platform-charts` group keeps cert-manager's chart
 pin together with its image tags. `Renovate` proposes one PR at the newest
 available version for each dependency. Base images in `bootstrap-rs/Dockerfile`
-are digest-pinned while retaining readable tags. Nothing automerges. A
-`minimumReleaseAge` of 3 days keeps a freshly published, possibly compromised
-release from landing on `main` unreviewed.
+are digest-pinned while retaining readable tags. Nothing automerges.
 
-### Inherited, inert rules
+### Pruned krops surface
 
-`renovate.json5` was inherited from krops and still contains rules for surfaces
-this repository does not ship: the `airgap/` image inventory, the
-`virtualized-e2e/` WireMock harness, the Zarf packaging, the
-`mise.aws.toml` / `mise.azure.toml` / `mise.gcp.toml` /
-`mise.local-talos.toml` environment layers, and the `mgmt/local-talos/`
-manifests. Those files are not present (or are present only as unused task
-layers), so the matching rules never find a dependency and never open a PR.
-They are kept so the file stays diffable against the krops source; pruning
-them is a separate cleanup, not a correctness issue.
+`renovate.json5` was inherited from krops. The rules for surfaces this
+repository does not ship - the cloud environment mise layers, the
+`mgmt/local-talos/` and `mgmt/{aws,azure,gcp}/` provider manifests, the
+`airgap/` packaging, and the `virtualized-e2e/` harness - were pruned in the
+cleanup tracked by issue #12; only rules targeting files this repo ships
+remain.
 
 ## Toolbox release version
 

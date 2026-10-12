@@ -7,7 +7,6 @@ on:
     paths:
       - "bootstrap-rs/**"
       - "mise.toml"
-      - "mise.aws.toml"
       - "mise.local-host.toml"
       - ".dockerignore"
       - ".github/workflows/bootstrap-rs.yml"
@@ -15,7 +14,6 @@ on:
     paths:
       - "bootstrap-rs/**"
       - "mise.toml"
-      - "mise.aws.toml"
       - "mise.local-host.toml"
       - ".dockerignore"
       - ".github/workflows/bootstrap-rs.yml"
@@ -101,20 +99,12 @@ jobs:
           # (MISE_AUTO_INSTALL=0 is what the documented runs pass).
           docker run --rm --entrypoint sh -v "$PWD:/workspace:ro" \
             -w /workspace -e MISE_AUTO_INSTALL=0 kaipr-toolbox:ci -c '
-            # The image must disable the AWS CLI pager (#496): the toolbox
-            # ships no `less`, so any paged output would fail. An empty value
-            # is set, not unset.
-            [ -z "${AWS_PAGER+x}" ] && { echo "::error::AWS_PAGER is unset in the toolbox image"; exit 1; }
-            [ -n "$AWS_PAGER" ] && { echo "::error::AWS_PAGER is not empty in the toolbox image"; exit 1; }
-            for t in kind kubectl helm clusterctl flux sops age age-keygen aws clusterawsadm \
-                     az gcloud gke-gcloud-auth-plugin docker xargs git curl mise uv python3 bash; do
+            for t in kind kubectl helm clusterctl flux sops age age-keygen \
+                     docker xargs git curl mise uv python3 bash; do
               command -v "$t" >/dev/null || { echo "::error::$t missing on PATH"; exit 1; }
             done
             kaipr-bootstrap --help >/dev/null
-            for task in sops-keygen sops-encrypt sops-decrypt sops-updatekeys mgmt-kubeconfig aws-credentials validate; do
+            for task in sops-keygen sops-encrypt sops-decrypt sops-updatekeys mgmt-kubeconfig validate; do
               mise tasks ls 2>/dev/null | grep -q "^$task " || { echo "::error::mise task $task not visible from /workspace"; exit 1; }
             done
-            for env in aws azure gcp local-host local-talos; do
-              mise -E "$env" tasks ls 2>/dev/null | grep -q "^kubeconfigs " || { echo "::error::mise -E $env kubeconfigs task not visible"; exit 1; }
-            done
-            mise -E aws which clusterawsadm >/dev/null || { echo "::error::mise -E aws cannot resolve clusterawsadm without installing"; exit 1; }'
+            mise -E local-host tasks ls 2>/dev/null | grep -q "^kubeconfigs " || { echo "::error::mise -E local-host kubeconfigs task not visible"; exit 1; }'

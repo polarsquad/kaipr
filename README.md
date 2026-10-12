@@ -1,7 +1,5 @@
 # kaipr
 
-![kaipr logo](docs/kaipr-logo.svg)
-
 kaipr is a reference that shows how to run a complete **AI platform** on a
 single computer using Kubernetes and GitOps, with no cloud account and no GPU.
 You run one command, and a management cluster, a workload cluster, and an AI

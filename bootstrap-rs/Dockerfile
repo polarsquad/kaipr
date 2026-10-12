@@ -67,41 +67,27 @@ RUN apt-get update \
     && chmod +x /usr/local/bin/podman
 
 # The repository is mounted at /workspace at run time; mise runs from the
-# working directory with both env layers available (aws tools per the #104
-# decision: one image, credentials arrive at runtime).
+# working directory with the env layer of the mounted repo (the local-host
+# layer is tasks only, so the base pins below cover every tool the lifecycle
+# invokes).
 ENV MISE_DATA_DIR=/usr/local/share/mise \
     MISE_YES=1 \
-    AWS_PAGER="" \
     PATH=/usr/local/share/mise/shims:/usr/local/bin:/usr/bin:/sbin:/bin
 
 COPY --from=build /usr/local/bin/kaipr-bootstrap /usr/local/bin/kaipr-bootstrap
 COPY bootstrap-rs/toolbox-entrypoint.sh /usr/local/bin/toolbox-entrypoint.sh
-COPY mise.toml mise.aws.toml mise.azure.toml mise.gcp.toml /opt/kaipr/
+COPY mise.toml /opt/kaipr/
 
 RUN chmod +x /usr/local/bin/toolbox-entrypoint.sh
 
 # Install every tool the configs pin except the dev-only toolchains the
-# lifecycle never invokes (go, python, zarf: airgap builds run on the
-# host, not inside the toolbox). The aws layer (aws-cli, clusterawsadm)
-# and the azure layer (azure-cli, for the arc-federate hook and
-# azure-bootstrap) install too; credentials arrive at runtime. azure-cli
-# is a pipx backend tool and needs the pinned python present to install.
-# The gcp layer (gcloud, for the wif-federate hook and gcp-bootstrap)
-# installs after the python layer: on arm64 the tarball ships no bundled
-# python, so the installer's provisioning probe needs a bare `python`
-# (the apt python-is-python3 above plus the pinned python 3.14.7 here).
-# gke-gcloud-auth-plugin is not in the SDK tarball, so it is added as a
-# Cloud SDK component before the shim is generated. `mise x` is avoided here:
-# it auto-installs every tool in the env (including the dev-only zarf) and a
-# zarf auto-install failure would abort the build. `mise which gcloud`
-# resolves the path without any install.
+# lifecycle never invokes (go, zarf: they resolve from the mounted repo at
+# run time, and a dev-toolchain auto-install would slow or break the build).
+# `mise x` is avoided: it auto-installs every tool in the env (including the
+# dev-only ones) and a failure would abort the build.
 RUN cd /opt/kaipr \
     && mise install -y kind helm kubectl clusterctl flux2 sops age \
-    && mise -E aws install -y aws-cli clusterawsadm \
     && mise install -y python uv \
-    && mise -E azure install -y azure-cli \
-    && mise -E gcp install -y gcloud \
-    && "$(mise -E gcp which gcloud)" components install gke-gcloud-auth-plugin --quiet \
     && mise reshim
 
 WORKDIR /workspace

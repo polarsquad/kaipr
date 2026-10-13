@@ -22,9 +22,9 @@ The first pass is a lean, public, laptop-reproducible reference:
   CPU model server + LLM policies) is declared in `workload/local-host/ai-platform/`
   (CRD layer in `crd/`, app layer in `app/`, ordered by `dependsOn`) and
   passes the kustomize + cross-check gate.
-- A live local-host e2e run (bootstrap through the toolbox, then a real
-  inference request against the gateway) is the next step and is tracked as a
-  follow-up issue.
+- The local-host lifecycle has been exercised end to end: bootstrap through
+  the toolbox, then a real inference request against the gateway
+  (completed; see issue #1).
 
 ## Ways to contribute
 

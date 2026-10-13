@@ -24,10 +24,11 @@ safety guards, with two deliberate upgrades:
 
 ## Distribution and build
 
-The primary distribution is the toolbox image,
-`ghcr.io/polarsquad/kaipr-toolbox`. It contains `kaipr-bootstrap` and the
-pinned tools required by the lifecycle. See [Operations](./operations.md) for
-the container invocation and host runtime contract.
+The toolbox image, `ghcr.io/polarsquad/kaipr-toolbox`, contains
+`kaipr-bootstrap` and the pinned tools required by the lifecycle. It is built
+from `bootstrap-rs/Dockerfile`; there is no published release yet. See
+[Operations](./operations.md) for the container invocation and host runtime
+contract.
 
 The `toolbox-release` workflow runs on `v*` tags. It requires the tag to match
 `bootstrap-rs/Cargo.toml`, builds Linux amd64 and arm64 images each on a
@@ -37,12 +38,11 @@ attestation. The `bootstrap-rs` CI workflow also builds and smokes the arm64
 image when its inputs change.
 
 Each architecture builds natively rather than under QEMU: emulating the
-amd64 rustc binary on the arm64 runner segfaulted deterministically and
-blocked the v0.2.0 release. The two single-arch images are merged into the
-multi-arch manifest with `docker buildx imagetools create` in plain bash
-rather than `docker/metadata-action`, after that action's `tags` output
-collapsed to a single tag on the v0.2.1 run and silently dropped the `X.Y` and
-`latest` aliases.
+amd64 rustc binary on the arm64 runner segfaults deterministically. The two
+single-arch images are merged into the multi-arch manifest with
+`docker buildx imagetools create` in plain bash rather than
+`docker/metadata-action`, whose `tags` output can collapse to a single tag
+and silently drop the `X.Y` and `latest` aliases.
 
 Verify a published image against the workflow's OIDC identity:
 
@@ -53,9 +53,10 @@ cosign verify ghcr.io/polarsquad/kaipr-toolbox:X.Y.Z \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
 ```
 
-Published releases carry the stable tags described above; build the current
-checkout as shown in [Operations](./operations.md) only for unreleased
-changes.
+No release has been published yet: the workflow runs only when a `v*` tag is
+pushed. Until then, build the current checkout as shown in
+[Operations](./operations.md). A published release will carry the stable tags
+described above.
 
 Build the CLI directly for native development:
 

@@ -401,9 +401,7 @@ Each step is idempotent: a resource that is already absent is skipped, so an
 interrupted run can be resumed by rerunning. Teardown needs a running container
 engine (docker or podman) to remove the registry and the cluster; a
 required-tool failure happens before mutation. There is no CAPI inventory, no
-management cluster, and no cloud resources to unwind. The shell fallback
-(`./teardown.sh`) additionally rejects `AWS_ONLY=1`, since there are no cloud
-resources to sweep.
+management cluster, and no cloud resources to unwind.
 
 ## Validation
 

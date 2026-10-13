@@ -32,11 +32,6 @@ preflight_checks() {
       ;;
   esac
 
-  if [ "${AWS_ONLY:-0}" = "1" ]; then
-    echo "ERROR: AWS_ONLY=1 is no longer supported: there are no cloud resources to clean up" >&2
-    exit 1
-  fi
-
   command -v kind >/dev/null 2>&1 || { echo "ERROR: kind not found in PATH" >&2; exit 1; }
 
   # Teardown verifies its own success, so a running engine is required:

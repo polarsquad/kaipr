@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""scripts/toolbox-run.sh must load .env before resolving the engine/socket
-(issue #257), and must resolve .env the way mise's env_file does: .env wins
-over the process environment, with the same line syntax. Otherwise
+"""scripts/toolbox-run.sh must load .env before resolving the engine/socket,
+and must resolve .env the way mise's env_file does: .env wins over the
+process environment, with the same line syntax. Otherwise
 `scripts/toolbox-run.sh` and `mise run bootstrap` hand the container
 different values for the same checkout."""
 import os
@@ -47,7 +47,7 @@ esac
 """
 
 # One case per mise env_file behavior the wrapper must reproduce; the values
-# are what mise 2026.9.12 exports for these lines.
+# are what mise 2026.10.3 exports for these lines.
 PARSE_CASES = {
     "export KP_EXPORT=exported": ("KP_EXPORT", "exported"),
     "KP_COMMENT=bar # note": ("KP_COMMENT", "bar"),

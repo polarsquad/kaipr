@@ -14,12 +14,13 @@ dependency dashboard issue.
 
 What this repository actually ships, Renovate manages:
 
-- `mise.toml` and `mise.local-host.toml`: tool pins (go, kubectl, python,
-  kind, helm, clusterctl, flux2, sops, age, uv, zarf) and the task layers.
-- `bootstrap.toml`: the Flux Operator, cert-manager, and CAPI Operator chart
-  pins consumed by `kaipr-bootstrap`. One annotation-driven custom manager
+- `mise.toml`: tool pins (go, kubectl, python, kind, helm, flux2, uv) plus the
+  mise CLI self-pin (`min_version`). The per-tool custom managers resolve each
+  pin against the exact upstream repository it installs from.
+- `bootstrap.toml`: the imperative chart pins consumed by `kaipr-bootstrap`.
+  `local-host` has one, `flux-operator`. An annotation-driven custom manager
   reads the adjacent `# renovate:` metadata. `mise run validate` cross-checks
-  these pins against their declarative Helm releases.
+  these pins against the Git tree.
 - `bootstrap-rs/Cargo.toml` and `bootstrap-rs/Cargo.lock`: Rust crate
   dependencies through Renovate's Cargo manager.
 - `bootstrap-rs/Dockerfile`: digest-pinned build and runtime base images, and
@@ -27,32 +28,26 @@ What this repository actually ships, Renovate manages:
   The `mise install` layer names tools without versions (`python`, `uv`,
   etc.), so every pin resolves from the copied `mise.toml` at build time;
   there is no inline version to keep in lockstep.
-- `mgmt/**` and `workload/**` YAML: Flux, Helm, and Kubernetes manifests,
-  chart values, and the CAPI provider CRs under
-  `mgmt/local-host/capi-providers/`.
-- `kindest/node` image tags in the local-host cluster classes (the management
-  cluster, the workload cluster, and the kind bootstrap node all run the same
-  version).
+- `workload/**` YAML: Flux, Helm, and Kubernetes manifests and chart values
+  for the `ai-platform` (agentgateway, model server, InferencePool + llm-d
+  Router EPP, LLM policies).
 - `pyproject.toml` and `uv.lock`: the repository Python lint tooling (ruff).
-- `pivot.sh`: imperative cert-manager and CAPI Operator chart pins, grouped
-  with `bootstrap.toml` and the Git manifests so a bump lands in one PR.
 - `.github/workflows/`: GitHub Actions references.
 
-Grouping keeps related bumps in a single PR: the `kubernetes-version` group
-covers `kindest/node` and the `kubectl` pin (both track a literal Kubernetes
-release version), and the `platform-charts` group keeps cert-manager's chart
-pin together with its image tags. `Renovate` proposes one PR at the newest
-available version for each dependency. Base images in `bootstrap-rs/Dockerfile`
-are digest-pinned while retaining readable tags. Nothing automerges.
+Grouping keeps related bumps in a single PR: the `github-actions` group
+covers the workflow action pins (excluding workflow images and runners).
+`Renovate` proposes one PR at the newest available version for each dependency.
+Base images in `bootstrap-rs/Dockerfile` are digest-pinned while retaining
+readable tags. Nothing automerges.
 
 ### Pruned krops surface
 
 `renovate.json5` was inherited from krops. The rules for surfaces this
 repository does not ship - the cloud environment mise layers, the
-`mgmt/local-talos/` and `mgmt/{aws,azure,gcp}/` provider manifests, the
+management-cluster manifests, the CAPI provider CRs, the SOPS/age tooling, the
 `airgap/` packaging, and the `virtualized-e2e/` harness - were pruned in the
-cleanup tracked by issue #12; only rules targeting files this repo ships
-remain.
+cleanup tracked by issue #12 and again with the single-cluster change; only
+rules targeting files this repo ships remain.
 
 ## Toolbox release version
 
@@ -73,18 +68,18 @@ manages those base references and build arguments.
    local dry-run procedure in [AGENTS.md](../AGENTS.md) under "Editing
    renovate.json5".
 2. Review the raw and rendered diffs. The `validate` workflow builds every
-   kustomize overlay under `mgmt/` and `workload/`, lints YAML, checks script
-   syntax, and runs the cross-checks (`bootstrap.toml` against the
-   declarative Helm releases, the toolbox-run behavior tests, the docs
-   helper-run test).
+   kustomize overlay under `workload/`, lints YAML, checks script syntax, and
+   runs the cross-checks (`bootstrap.toml` against the Git tree, the
+   toolbox-run behavior tests, the docs helper-run test).
 3. For toolbox inputs, also require the `bootstrap-rs` workflow's Rust checks
    and container build/smoke job.
-4. For a `kubernetes-version` PR, confirm the `kindest/node` tag and the
-   `kubectl` pin both moved to the same release.
-5. Merge manually.
+4. Merge manually.
 
 ## Intentional differences
 
+- The kind cluster uses the kind 0.33.0 default node image (Kubernetes
+  v1.37.0); the cluster has no in-repo node-image pin, so Renovate tracks the
+  `kind` tool pin in `mise.toml` but not a `kindest/node` tag.
 - Unversioned local tags such as `kaipr-registry:5000/kaipr:latest` have no
   comparable release version and remain untracked.
 - `scripts/toolbox-run.sh` defaults `TOOLBOX_IMAGE` to the mutable
@@ -94,6 +89,5 @@ manages those base references and build arguments.
   without a package-version pin. Its client version intentionally follows that
   repository, while the base image, mise installer, and Podman client remain
   Renovate-managed.
-- `*.sops.yaml` `version:` fields, Kubernetes `apiVersion` strings, Helm chart
-  `appVersion` values, and `bootstrap-rs/Cargo.toml`'s package version are not
-  dependency pins.
+- Kubernetes `apiVersion` strings, Helm chart `appVersion` values, and
+  `bootstrap-rs/Cargo.toml`'s package version are not dependency pins.

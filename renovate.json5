@@ -2,15 +2,12 @@
   // Renovate config for kaipr.
   // Runs via the hosted Renovate GitHub App.
   // Version sources covered:
-  //   - Flux / Helm / Kubernetes manifests under mgmt/ and workload/
+  //   - Flux / Helm / Kubernetes manifests under workload/
   //   - GitHub Actions workflow action pins (.github/workflows/)
   //   - mise tool pins (explicit per-tool custom managers below; the native
   //     mise manager is disabled so dep resolution is deterministic)
-  //   - clusterctl operator provider manifests under
-  //     mgmt/local-host/capi-providers/
-  //   - kind node images (cluster classes)
   //   - annotated chart pins in bootstrap.toml (consumed by the Rust binary)
-  //   - imperative Helm chart pins in pivot.sh
+  //   - toolbox image pins in bootstrap-rs/Dockerfile
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": [
     "config:recommended",
@@ -25,13 +22,13 @@
   "suppressNotifications": ["prEditedNotification", "prIgnoreNotification"],
   "rebaseWhen": "conflicted",
   "flux": {
-    "managerFilePatterns": ["/(^|/)(mgmt|workload)/.+\\.ya?ml$/"]
+    "managerFilePatterns": ["/(^|/)workload/.+\\\.ya?ml$/"]
   },
   "kubernetes": {
-    "managerFilePatterns": ["/(^|/)(mgmt|workload)/.+\\.ya?ml$/"]
+    "managerFilePatterns": ["/(^|/)workload/.+\\\.ya?ml$/"]
   },
   "helm-values": {
-    "managerFilePatterns": ["/(^|/)(mgmt|workload)/.+\\.ya?ml$/"]
+    "managerFilePatterns": ["/(^|/)workload/.+\\\.ya?ml$/"]
   },
   // Explicit per-tool custom managers replace the native mise manager so each
   // tool resolves against the exact upstream GitHub repo we install from.
@@ -101,16 +98,6 @@
     },
     {
       "customType": "regex",
-      "description": "mise: clusterctl version pin",
-      "managerFilePatterns": ["/(^|/)mise\\.toml$/"],
-      "matchStrings": ["clusterctl = \"(?<currentValue>[^\"]+)\""],
-      "depNameTemplate": "kubernetes-sigs/cluster-api",
-      "datasourceTemplate": "github-releases",
-      "extractVersionTemplate": "^v(?<version>.+)",
-      "autoReplaceStringTemplate": "clusterctl = \"{{newValue}}\""
-    },
-    {
-      "customType": "regex",
       "description": "mise: flux2 CLI pin (floating latest tag)",
       "managerFilePatterns": ["/(^|/)mise\\.toml$/"],
       "matchStrings": ["flux2 = \"(?<currentValue>[^\"]+)\""],
@@ -118,35 +105,6 @@
       "datasourceTemplate": "github-releases",
       "extractVersionTemplate": "^v(?<version>.+)",
       "autoReplaceStringTemplate": "flux2 = \"{{newValue}}\""
-    },
-    {
-      "customType": "regex",
-      "description": "mise: sops pin (floating latest tag)",
-      "managerFilePatterns": ["/(^|/)mise\\.toml$/"],
-      "matchStrings": ["sops = \"(?<currentValue>[^\"]+)\""],
-      "depNameTemplate": "getsops/sops",
-      "datasourceTemplate": "github-releases",
-      "extractVersionTemplate": "^v(?<version>.+)",
-      "autoReplaceStringTemplate": "sops = \"{{newValue}}\""
-    },
-    {
-      "customType": "regex",
-      "description": "mise: age pin (floating latest tag)",
-      "managerFilePatterns": ["/(^|/)mise\\.toml$/"],
-      "matchStrings": ["age = \"(?<currentValue>[^\"]+)\""],
-      "depNameTemplate": "FiloSottile/age",
-      "datasourceTemplate": "github-releases",
-      "extractVersionTemplate": "^v(?<version>.+)",
-      "autoReplaceStringTemplate": "age = \"{{newValue}}\""
-    },
-    {
-      "customType": "regex",
-      "description": "mise: zarf CLI pin (github backend)",
-      "managerFilePatterns": ["/(^|/)mise\\.toml$/"],
-      "matchStrings": ["\\[tools\\.\"github:zarf-dev/zarf\"\\]\\nversion = \"(?<currentValue>[^\"]+)\""],
-      "depNameTemplate": "zarf-dev/zarf",
-      "datasourceTemplate": "github-releases",
-      "extractVersionTemplate": "^v(?<version>.+)"
     },
     {
       "customType": "regex",
@@ -188,80 +146,8 @@
       "description": "Annotated chart pins in bootstrap.toml",
       "managerFilePatterns": ["/(^|/)bootstrap\\.toml$/"],
       "matchStrings": [
-        "# renovate: datasource=(?<datasource>[a-z0-9-]+)(?: registryUrl=(?<registryUrl>\\S+))? depName=(?<depName>\\S+)(?: versioning=(?<versioning>[a-z0-9-]+))?\\n[a-zA-Z0-9_-]+ = \"(?<currentValue>[^\\\"]+)\""
+        "# renovate: datasource=(?<datasource>[a-z0-9-]+)(?: registryUrl=(?<registryUrl>\\S+))? depName=(?<depName>\\S+)(?: versioning=(?<versioning>[a-z0-9-]+))?\n[a-zA-Z0-9_-]+ = \"(?<currentValue>[^\\\"]+)\""
       ]
-    },
-    {
-      "customType": "regex",
-      "description": "pivot.sh imperative Helm chart pins",
-      "managerFilePatterns": ["/(^|/)pivot\\.sh$/"],
-      "matchStrings": [
-        "CERT_MANAGER_VERSION=\"(?<currentValue>[^\"]+)\""
-      ],
-      "depNameTemplate": "cert-manager",
-      "datasourceTemplate": "helm",
-      "autoReplaceStringTemplate": "CERT_MANAGER_VERSION=\"{{newValue}}\""
-    },
-    {
-      "customType": "regex",
-      "description": "pivot.sh imperative Helm chart pins",
-      "managerFilePatterns": ["/(^|/)pivot\\.sh$/"],
-      "matchStrings": [
-        "CAPI_OPERATOR_VERSION=\"(?<currentValue>[^\"]+)\""
-      ],
-      "depNameTemplate": "cluster-api-operator",
-      "datasourceTemplate": "helm",
-      "autoReplaceStringTemplate": "CAPI_OPERATOR_VERSION=\"{{newValue}}\""
-    },
-    // ── clusterctl operator provider manifests ───────────────────────────
-    {
-      "customType": "regex",
-      "description": "CAPI core, kubeadm, and CAPD provider versions (local-host)",
-      "managerFilePatterns": [
-        "/(^|/)mgmt/local-host/capi-providers/(capi-system|capd-system)/.+\\.ya?ml$/"
-      ],
-      "matchStrings": ["\\s{2}version: \"v(?<currentValue>[^\"]+)\""],
-      "depNameTemplate": "kubernetes-sigs/cluster-api",
-      "datasourceTemplate": "github-releases",
-      "extractVersionTemplate": "^v(?<version>.+)",
-      "autoReplaceStringTemplate": "  version: \"v{{newValue}}\""
-    },
-    {
-      "customType": "regex",
-      "description": "CAAPH (helm add-on) provider version",
-      "managerFilePatterns": [
-        "/(^|/)mgmt/local-host/capi-providers/caaph-system/.+\\.ya?ml$/"
-      ],
-      "matchStrings": ["\\s{2}version: \"v(?<currentValue>[^\"]+)\""],
-      "depNameTemplate": "kubernetes-sigs/cluster-api-addon-provider-helm",
-      "datasourceTemplate": "github-releases",
-      "extractVersionTemplate": "^v(?<version>.+)",
-      "autoReplaceStringTemplate": "  version: \"v{{newValue}}\""
-    },
-    // ── kind node images ─────────────────────────────────────────────────
-    {
-      "customType": "regex",
-      "description": "kindest/node image pins in management cluster manifests",
-      "managerFilePatterns": [
-        "/(^|/)mgmt/.+\\.ya?ml$/"
-      ],
-      "matchStrings": ["kindest/node:v(?<currentValue>[0-9A-Za-z.\\-]+)"],
-      "depNameTemplate": "kindest/node",
-      "datasourceTemplate": "docker",
-      "versioningTemplate": "docker",
-      "autoReplaceStringTemplate": "kindest/node:v{{newValue}}"
-    },
-    {
-      "customType": "regex",
-      "description": "kindest/node topology.version pins (must track the node image)",
-      "managerFilePatterns": [
-        "/(^|/)mgmt/local-host/clusters/docker/cluster\\.yaml$/",
-        "/(^|/)mgmt/local-host/clusters/management/cluster\\.yaml$/"
-      ],
-      "matchStrings": ["[ \t]+version: v(?<currentValue>[0-9A-Za-z.\\-]+)"],
-      "depNameTemplate": "kindest/node",
-      "datasourceTemplate": "docker",
-      "versioningTemplate": "docker"
     }
     // ── end customManagers ────────────────────────────────────────────────
   ],
@@ -273,19 +159,6 @@
       "pinDigests": true
     },
     {
-      "description": "Resolve cert-manager Helm repo once across declarative and imperative pins",
-      "matchDatasources": ["helm"],
-      "matchPackageNames": ["cert-manager"],
-      "registryUrls": ["https://charts.jetstack.io"],
-      "extractVersion": "^v(?<version>.+)$"
-    },
-    {
-      "description": "Resolve cluster-api-operator Helm repo once across declarative and imperative pins",
-      "matchDatasources": ["helm"],
-      "matchPackageNames": ["cluster-api-operator"],
-      "registryUrls": ["https://kubernetes-sigs.github.io/cluster-api-operator"]
-    },
-    {
       "description": "No automerge by default; merges stay manual. The next rule is the only exception",
       "matchUpdateTypes": ["major", "minor", "patch", "digest", "pin", "pinDigest"],
       "automerge": false
@@ -295,52 +168,6 @@
       "matchManagers": ["github-actions"],
       "matchDepTypes": ["action"],
       "groupName": "github-actions"
-    },
-    {
-      "description": "Group Flux controller images and CLI updates",
-      "matchDatasources": ["docker", "github-releases", "helm"],
-      "matchPackageNames": [
-        "/^ghcr\\.io/fluxcd//",
-        "/^ghcr\\.io/controlplaneio-fluxcd//",
-        "/^fluxcd//"
-      ],
-      "groupName": "flux"
-    },
-    {
-      "description": "Group the CAPI family (core, kubeadm, CAPD, CAAPH)",
-      "matchDatasources": ["docker", "github-releases"],
-      "matchPackageNames": [
-        "kubernetes-sigs/cluster-api",
-        "kubernetes-sigs/cluster-api-addon-provider-helm",
-        "/^registry\\.k8s\\.io/cluster-api//",
-        "/^registry\\.k8s\\.io/cluster-api-helm//",
-        "/^gcr\\.io/k8s-staging-cluster-api//"
-      ],
-      "groupName": "cluster-api"
-    },
-    {
-      "description": "Group imperative pivot chart pins with their GitOps HelmReleases",
-      "matchDatasources": ["helm"],
-      "matchPackageNames": ["cert-manager", "cluster-api-operator"],
-      "groupName": "platform-charts"
-    },
-    {
-      "description": "Group all Kubernetes-release-version pins into one PR",
-      "matchDepNames": [
-        "kindest/node",
-        "kubernetes/kubernetes",
-        "registry.k8s.io/kube-apiserver",
-        "registry.k8s.io/kube-controller-manager",
-        "registry.k8s.io/kube-proxy",
-        "registry.k8s.io/kube-scheduler",
-        "registry.k8s.io/coredns/coredns",
-        "registry.k8s.io/etcd",
-        "registry.k8s.io/pause"
-      ],
-      "groupName": "kubernetes-version"
-    },
-    // flux2, sops, and age were previously floating "latest" pins;
-    // they are now pinned to concrete versions in mise.toml
-    // so Renovate tracks them normally.
+    }
   ]
 }

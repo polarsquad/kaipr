@@ -11,5 +11,4 @@
 # Never ship build artifacts, secrets, or git history in the context.
 bootstrap-rs/target/
 .env
-age.agekey
 .git

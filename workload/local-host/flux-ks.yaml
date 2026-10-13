@@ -8,7 +8,7 @@ spec:
   retryInterval: 2m
   timeout: 5m
   # Relative to the OCI artifact root (the FluxInstance's sync.path is
-  # workload/local-host), like the mgmt side's ./mgmt/local-host/... paths.
+  # workload/local-host), as are the paths in the sibling Kustomization.
   path: workload/local-host/ai-platform/crd
   prune: true
   sourceRef:

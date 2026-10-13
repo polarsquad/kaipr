@@ -80,13 +80,13 @@ COPY mise.toml /opt/kaipr/
 
 RUN chmod +x /usr/local/bin/toolbox-entrypoint.sh
 
-# Install every tool the configs pin except the dev-only toolchains the
-# lifecycle never invokes (go, zarf: they resolve from the mounted repo at
-# run time, and a dev-toolchain auto-install would slow or break the build).
+# Install every tool the configs pin except the dev-only toolchain the
+# lifecycle never invokes (go: it resolves from the mounted repo at run
+# time, and a dev-toolchain auto-install would slow or break the build).
 # `mise x` is avoided: it auto-installs every tool in the env (including the
-# dev-only ones) and a failure would abort the build.
+# dev-only one) and a failure would abort the build.
 RUN cd /opt/kaipr \
-    && mise install -y kind helm kubectl clusterctl flux2 sops age \
+    && mise install -y kind helm kubectl flux2 \
     && mise install -y python uv \
     && mise reshim
 

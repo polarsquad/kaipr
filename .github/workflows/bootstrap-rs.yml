@@ -99,12 +99,12 @@ jobs:
           # (MISE_AUTO_INSTALL=0 is what the documented runs pass).
           docker run --rm --entrypoint sh -v "$PWD:/workspace:ro" \
             -w /workspace -e MISE_AUTO_INSTALL=0 kaipr-toolbox:ci -c '
-            for t in kind kubectl helm clusterctl flux sops age age-keygen \
+            for t in kind kubectl helm flux \
                      docker xargs git curl mise uv python3 bash; do
               command -v "$t" >/dev/null || { echo "::error::$t missing on PATH"; exit 1; }
             done
             kaipr-bootstrap --help >/dev/null
-            for task in sops-keygen sops-encrypt sops-decrypt sops-updatekeys mgmt-kubeconfig validate; do
+            for task in validate; do
               mise tasks ls 2>/dev/null | grep -q "^$task " || { echo "::error::mise task $task not visible from /workspace"; exit 1; }
             done
             mise -E local-host tasks ls 2>/dev/null | grep -q "^kubeconfigs " || { echo "::error::mise -E local-host kubeconfigs task not visible"; exit 1; }'

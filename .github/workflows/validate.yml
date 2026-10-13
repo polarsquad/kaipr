@@ -28,7 +28,7 @@ jobs:
       - name: Build every overlay
         run: |
           fail=0
-          for dir in $(find mgmt workload -name kustomization.yaml -exec dirname {} \; | sort -u); do
+          for dir in $(find workload -name kustomization.yaml -exec dirname {} \; | sort -u); do
             echo "==> kustomize build $dir"
             if ! kustomize build "$dir" >/dev/null; then
               echo "    FAILED: $dir" >&2
@@ -40,11 +40,10 @@ jobs:
       - name: Lint YAML
         uses: ibiqlik/action-yamllint@v3.1.1
         with:
-          file_or_dir: mgmt workload
+          file_or_dir: workload
           config_data: |
             extends: default
             ignore: |
-              *.sops.yaml
               workload/local-host/ai-platform/crd/vendor/
             rules:
               line-length: disable
@@ -63,8 +62,8 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7.0.1
 
-      # The sops-keygen and local-host kubeconfig checks run mise tasks, so
-      # mise and the pinned tools (age, kubectl) must be available here.
+      # The remaining cross-checks only need python; mise and the pinned
+      # tools (kubectl) are installed so the mise config itself is exercised.
       - name: Install mise
         uses: jdx/mise-action@v5.1.1
         with:
@@ -82,7 +81,7 @@ jobs:
 
       - name: Shell scripts parse
         run: |
-          for script in bootstrap.sh bootstrap-common.sh pivot.sh teardown.sh scripts/toolbox-run.sh; do
+          for script in bootstrap.sh bootstrap-common.sh teardown.sh scripts/toolbox-run.sh; do
             echo "==> bash -n $script"
             bash -n "$script" || { echo "FAILED: $script" >&2; exit 1; }
           done
@@ -91,12 +90,6 @@ jobs:
         run: |
           python3 tests/test-toolbox-run-exec.py
           python3 tests/test-toolbox-run-env-precedence.py
-
-      - name: sops-keygen prints the public key
-        run: python3 tests/test-sops-keygen-prints-public-key.py
-
-      - name: local-host kubeconfig endpoint is host-only
-        run: python3 tests/test-local-host-kubeconfig-toolbox-endpoint.py
 
       - name: Docs show toolbox helper runs, not host mise
         run: python3 tests/test-docs-toolbox-helpers.py

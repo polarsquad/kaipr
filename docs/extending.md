@@ -1,33 +1,17 @@
-# Adding clusters and apps
+# Extending the reference
 
-This reference ships one environment, `local-host`. Everything here is the
-local-host shape; the bootstrap engine (`bootstrap-rs/`) is deliberately
-generic over environments, so adding a new provider or environment is the
-same kind of work krops does for AWS/Azure/GCP (see
-[krops](https://github.com/polarsquad/krops) for those worked examples).
+This reference ships one environment, `local-host`, and that environment is a
+**single cluster by design**: one kind cluster runs the Flux instance and the
+platform. There is no management cluster and no cluster provisioning, so
+"adding a cluster" is out of scope here - that is the CAPI surface
+[krops](https://github.com/polarsquad/krops) keeps and this reference dropped.
+What this reference does support is adding applications to the cluster, and
+adding another `local-host`-shaped environment.
 
-## Adding a workload cluster
+## Adding apps to the cluster
 
-`local-host` already provisions one workload cluster, `local-workload`, from
-`mgmt/local-host/clusters/`. To add another cluster to the same environment:
-
-1. Create `mgmt/local-host/clusters/<name>/` with a `cluster.yaml`,
-   `kustomization.yaml` (set `namePrefix`), and `capi-nameref.yaml` so CAPI
-   cross-references get the prefix applied (see the existing
-   `local-workload` cluster).
-2. Label the `Cluster` with `fluxcd: enabled`.
-3. Register it in `mgmt/local-host/clusters/kustomization.yaml` and add a
-   `Kustomization` entry in `mgmt/local-host/clusters/flux-ks.yaml` with
-   `dependsOn: [capd-system]`.
-4. If the new cluster needs a different workload tree, add a matching
-   FluxInstance entry to `mgmt/local-host/addons/flux-apps/` (sync path plus
-   any `cluster-vars`).
-5. Run `mise run validate`, commit, and push.
-
-## Adding apps to the workload cluster
-
-`workload/local-host/` is the overlay that the workload Flux instance
-reconciles, delivered wholesale from the OCI artifact. Add the app as its own
+`workload/local-host/` is the tree the cluster's Flux instance reconciles,
+delivered wholesale from the OCI artifact. Add the app as its own
 subdirectory:
 
 1. Create `workload/local-host/<app>/` with a `kustomization.yaml` listing the
@@ -35,8 +19,9 @@ subdirectory:
    (path `./workload/local-host/<app>`; add `dependsOn` and `wait: true` as
    needed).
 2. Register the `flux-ks.yaml` in `workload/local-host/kustomization.yaml`.
-3. Run `mise run validate`, commit, and push. The workload cluster picks it up
-   on its next sync from the OCI artifact.
+3. Run `mise run validate`, commit, and push, and republish the artifact
+   (see [Republish after a change](./operations.md#bootstrap)). The cluster
+   picks it up on its next sync.
 
 For the AI platform specifically, add the new component to
 `workload/local-host/ai-platform/app/` in the right reconciliation order
@@ -48,50 +33,34 @@ so a CR in the same tree as its own CRD installer deadlocks on first boot
 (see the `local-ai-platform` / `local-ai-platform-crd` split in
 `workload/local-host/flux-ks.yaml`).
 
-## Using other providers
+## Adding another environment
 
-The management cluster is not CAPD-only. Providers are declared as CAPI
-operator CRs (`operator.cluster.x-k8s.io/v1alpha2`) under
-`mgmt/<environment>/capi-providers/`, one directory per provider namespace,
-registered in that environment's `capi-providers/flux-ks.yaml`. The operator
-resolves the well-known provider names (`aws`, `azure`, `gcp`, `talos`,
-`k0sproject-k0smotron`) from the same built-in registry `clusterctl` uses, so a
-provider is just a typed CR with a pinned version:
+An environment is a `[environments.<name>]` section in
+[`bootstrap.toml`](../bootstrap.toml) plus a `mise.<name>.toml` environment
+layer (the `[env]` profile default and the helper tasks, such as
+`oci-push`). A second local environment - for example a second machine's
+`dev-laptop` - is therefore:
 
-```
-mgmt/<environment>/capi-providers/<name>-system/
-  namespace.yaml
-  kustomization.yaml        # lists namespace.yaml + providers.yaml (+ secrets)
-  providers.yaml            # the typed provider CR(s)
-  <credentials>.sops.yaml   # optional cloud credentials, SOPS-encrypted
-```
+1. Add `[environments.<name>]` to `bootstrap.toml` with `kind = "<name>"`,
+   `sync = "oci"`, and a `sync-path` pointing at the tree to reconcile. The
+   section name is authoritative: `kind` must match it.
+2. Add `mise.<name>.toml` with the `oci-push` task (copy
+   `mise.local-host.toml` and point `OCI_SOURCE_PATH` at the same or a
+   different tree) and the `[env]` `KAIPR_PROFILE` default.
+3. The cluster/registry names in `[bootstrap]` are global; if the new
+   environment needs different ones, that is an engine change (the names are
+   read from the global section, not per environment).
+4. Run `mise run validate` (the `bootstrap.toml` cross-check requires each
+   environment's sync path to exist and the mise layer to carry `oci-push`),
+   commit, and push.
 
-The Flux registration in `flux-ks.yaml` follows the existing entries:
-`dependsOn: [capi-system]`, `decryption.provider: sops` when credentials ship
-in Git, and a `healthChecks` entry naming one CRD the provider installs so Flux
-waits for it.
+The bootstrap engine (`bootstrap-rs/`) stays generic over environments:
+nothing in it is `local-host`-specific.
 
-Contract note: this repo pins CAPI core v1.14.2, which speaks the v1beta2
-contract and still accepts v1beta1-contract providers until the v1beta1
-removal (tentatively CAPI v1.16, April 2027). Prefer providers that already
-speak v1beta2.
+### After adding an environment
 
-To add a new environment (a new provider or cloud), copy the
-`mgmt/local-host/` and `workload/local-host/` layout under a new environment
-directory, add it to `bootstrap.toml`, and add a matching `mise.<env>.toml`
-if the environment needs extra tools. The krops repository has the full
-worked examples for AWS (CAPA/EKS), Azure (CAPZ/AKS), GCP (CAPG/GKE + Config
-Connector), and Talos (CABPT/CACPPT + Tinkerbell); the shape of each
-environment is identical, only the provider CRs and cluster definitions
-differ.
-
-### After adding a provider
-
-1. `mise run validate` builds every overlay, including the new directory.
-2. Open the PR; konflate renders the blast radius (new CRDs, provider
-   deployments) into the PR comment and the `konflate / Rendered Flux diff`
-   check.
-3. After merge, confirm the provider came up:
-   `kubectl get pods -n <name>-system` and
-   `kubectl get <kind>providers.operator.cluster.x-k8s.io -A` (e.g.
-   `infrastructureproviders`).
+1. `mise run validate` builds every overlay and cross-checks the config.
+2. Open the PR; konflate renders the blast radius into the PR comment and the
+   `konflate / Rendered Flux diff` check.
+3. After merge, bootstrap the new environment:
+   `scripts/toolbox-run.sh bootstrap <name>`.

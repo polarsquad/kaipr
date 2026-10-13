@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """toolbox-run.sh's exec must not be truncated by a comment inside its
-backslash continuation (#357): the image and CLI args must always reach the
-container engine, and CLOUDSDK_CONFIG must be forwarded exactly once, fixed
-to the repo-local path (never from PASS_ENV, so an operator value can't
-override it). An operator value for an immutable key must also warn on
-stderr instead of silently doing nothing."""
+backslash continuation: the image and CLI args must always reach the
+container engine, and KUBECONFIG must be forwarded exactly once, fixed to
+the repo-local path (never from the process environment, so an operator
+value can't override it). An operator value for an immutable key must also
+warn on stderr instead of silently doing nothing."""
 import os, shutil, subprocess, sys, tempfile
 from pathlib import Path
 
@@ -58,10 +58,10 @@ def test_image_and_cli_args_reach_docker() -> None:
         raise AssertionError(f"image argument dropped from the exec: {argv}")
     if "local-host" not in argv:
         raise AssertionError(f"CLI args dropped from the exec: {argv}")
-    cloudsdk = [a for a in argv if a.startswith("CLOUDSDK_CONFIG")]
-    if cloudsdk != ["CLOUDSDK_CONFIG=/workspace/.gcloud"]:
+    kubeconfig = [a for a in argv if a.startswith("KUBECONFIG")]
+    if kubeconfig != ["KUBECONFIG=/workspace/.kube/kind.yaml"]:
         raise AssertionError(
-            f"CLOUDSDK_CONFIG must be forwarded exactly once, fixed to the repo-local path: {argv}"
+            f"KUBECONFIG must be forwarded exactly once, fixed to the repo-local path: {argv}"
         )
     # The image must come after the last -e (so it's not swallowed as a flag
     # value) and the CLI args must come after the image.
@@ -72,13 +72,13 @@ def test_image_and_cli_args_reach_docker() -> None:
 
 
 def test_operator_override_of_immutable_key_warns_and_is_ignored() -> None:
-    argv, stderr = run_once({"CLOUDSDK_CONFIG": "/home/operator/.gcloud"})
-    cloudsdk = [a for a in argv if a.startswith("CLOUDSDK_CONFIG")]
-    if cloudsdk != ["CLOUDSDK_CONFIG=/workspace/.gcloud"]:
+    argv, stderr = run_once({"KUBECONFIG": "/home/operator/.kube/config"})
+    kubeconfig = [a for a in argv if a.startswith("KUBECONFIG")]
+    if kubeconfig != ["KUBECONFIG=/workspace/.kube/kind.yaml"]:
         raise AssertionError(
-            f"an operator-set CLOUDSDK_CONFIG must still be overridden by the fixed value: {argv}"
+            f"an operator-set KUBECONFIG must still be overridden by the fixed value: {argv}"
         )
-    if "CLOUDSDK_CONFIG" not in stderr or "/home/operator/.gcloud" not in stderr:
+    if "KUBECONFIG" not in stderr or "/home/operator/.kube/config" not in stderr:
         raise AssertionError(
             f"overriding an immutable key must warn on stderr instead of silently doing nothing: {stderr!r}"
         )

@@ -14,15 +14,12 @@ REGISTRY_HOST="${REGISTRY_HOST:-localhost}"
 OCI_REPOSITORY="${OCI_REPOSITORY:-kaipr}"
 OCI_TAG="${OCI_TAG:-latest}"
 OCI_URL="oci://${REGISTRY_HOST}:${REGISTRY_PORT}/${OCI_REPOSITORY}:${OCI_TAG}"
-OCI_MGMT_SOURCE_PATH="mgmt/local-host"
-OCI_WORKLOAD_SOURCE_PATH="workload/local-host"
+OCI_SOURCE_PATH="workload/local-host"
 
-for source_path in "$OCI_MGMT_SOURCE_PATH" "$OCI_WORKLOAD_SOURCE_PATH"; do
-  if [ ! -d "$source_path" ]; then
-    echo "ERROR: OCI source directory does not exist: $source_path" >&2
-    exit 1
-  fi
-done
+if [ ! -d "$OCI_SOURCE_PATH" ]; then
+  echo "ERROR: OCI source directory does not exist: $OCI_SOURCE_PATH" >&2
+  exit 1
+fi
 
 if ! curl --fail --silent --show-error "http://${REGISTRY_HOST}:${REGISTRY_PORT}/v2/" >/dev/null; then
   echo "ERROR: local registry is unavailable at ${REGISTRY_HOST}:${REGISTRY_PORT}" >&2
@@ -56,11 +53,12 @@ cleanup_artifact_root() {
   rm -rf "$ARTIFACT_ROOT"
 }
 trap cleanup_artifact_root EXIT
-mkdir -p "$ARTIFACT_ROOT/mgmt" "$ARTIFACT_ROOT/workload"
-cp -R "$OCI_MGMT_SOURCE_PATH" "$ARTIFACT_ROOT/mgmt/local-host"
-cp -R "$OCI_WORKLOAD_SOURCE_PATH" "$ARTIFACT_ROOT/workload/local-host"
+# The artifact preserves the checkout path below the artifact root so the
+# FluxInstance's sync.path (workload/local-host) keeps working.
+mkdir -p "$ARTIFACT_ROOT/workload"
+cp -R "$OCI_SOURCE_PATH" "$ARTIFACT_ROOT/workload/local-host"
 
-echo "==> Packaging mgmt/local-host and workload/local-host"
+echo "==> Packaging workload/local-host"
 echo "==> Pushing ${OCI_URL}"
 flux push artifact "$OCI_URL" \
   --path="$ARTIFACT_ROOT" \
@@ -71,38 +69,13 @@ flux push artifact "$OCI_URL" \
 '''
 
 [tasks.kubeconfigs]
-description = "Export the local CAPD workload-cluster kubeconfig"
+description = "Export the kind cluster kubeconfig to .kube/kaipr.yaml"
 run = '''
-KUBECONFIG_FILE="${KUBECONFIG_FILE:-local-workload.kubeconfig}"
-clusterctl get kubeconfig local-workload > "$KUBECONFIG_FILE"
-
-# CAPD records the load balancer's container-network IP, which is not routable
-# from macOS. Point the kubeconfig at the port published on localhost instead.
-# Host-only: inside the toolbox (KAIPR_TOOLBOX=1, on the kind network) the
-# recorded endpoint already resolves and 127.0.0.1 would be the container.
-if [ "${KAIPR_TOOLBOX:-0}" != 1 ]; then
-  if [ -n "${CONTAINER_ENGINE:-}" ]; then
-    engine="$CONTAINER_ENGINE"
-  elif command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
-    engine=docker
-  elif command -v podman >/dev/null 2>&1 && podman info >/dev/null 2>&1; then
-    engine=podman
-  else
-    echo "ERROR: no running container engine found" >&2
-    exit 1
-  fi
-  endpoint=$($engine port local-workload-lb 6443/tcp | head -1)
-  port="${endpoint##*:}"
-  case "$port" in
-    ''|*[!0-9]*)
-      echo "ERROR: cannot determine the local-workload API server port" >&2
-      exit 1
-      ;;
-  esac
-  kubectl config set-cluster local-workload \
-    --server="https://127.0.0.1:${port}" \
-    --kubeconfig="$KUBECONFIG_FILE" >/dev/null
-fi
+KUBECONFIG_FILE="${KUBECONFIG_FILE:-.kube/kaipr.yaml}"
+mkdir -p "$(dirname "$KUBECONFIG_FILE")"
+# kind publishes the API port on localhost, so the exported kubeconfig works
+# from the host (and from the toolbox) with no endpoint rewrite.
+kind get kubeconfig --name kaipr > "$KUBECONFIG_FILE"
 chmod 600 "$KUBECONFIG_FILE"
 echo "Wrote ${KUBECONFIG_FILE}"
 echo "Use with: KUBECONFIG=${KUBECONFIG_FILE} kubectl get nodes"
@@ -111,10 +84,10 @@ echo "Use with: KUBECONFIG=${KUBECONFIG_FILE} kubectl get nodes"
 [tasks.inference-demo]
 description = "Expose the AI inference platform as a browser chat page at http://127.0.0.1:18081"
 run = '''
-KUBECONFIG_FILE="${KUBECONFIG_FILE:-local-workload.kubeconfig}"
+KUBECONFIG_FILE="${KUBECONFIG_FILE:-.kube/kaipr.yaml}"
 if [ ! -f "$KUBECONFIG_FILE" ]; then
-  echo "ERROR: workload kubeconfig not found: $KUBECONFIG_FILE" >&2
-  echo "       Create it with the kubeconfigs helper task (see docs/operations.md)" >&2
+  echo "ERROR: kubeconfig not found: $KUBECONFIG_FILE" >&2
+  echo "       Bootstrap first, or create it with the kubeconfigs helper task (see docs/operations.md)" >&2
   exit 1
 fi
 

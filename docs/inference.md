@@ -1,17 +1,17 @@
 # Inference platform (AI layer)
 
-The workload cluster in `workload/local-host/` carries a small AI inference
-platform on top of the same GitOps delivery as everything else. It is a
-reference for how an [agentgateway](https://agentgateway.dev)-based inference
-gateway, a Gateway API Inference Extension pool, the [llm-d
+The cluster reconciles `workload/local-host/` and it carries a small AI
+inference platform on top of the same GitOps delivery as everything else. It
+is a reference for how an [agentgateway](https://agentgateway.dev)-based
+inference gateway, a Gateway API Inference Extension pool, the [llm-d
 Router](https://llm-d.ai) Endpoint Picker, and agentgateway LLM policies fit
 together. This is the platform-engineering / inference-serving direction the
 CDF CI/CD AI SIG calls for: a reference architecture, not a product.
 
 ## What is deployed
 
-The AI platform is split across two Flux Kustomizations on the workload
-cluster (declared in `workload/local-host/flux-ks.yaml`), reconciled in this
+The AI platform is split across two Flux Kustomizations on the cluster
+(declared in `workload/local-host/flux-ks.yaml`), reconciled in this
 order: `local-ai-platform-crd` (path `workload/local-host/ai-platform/crd/`),
 then `local-ai-platform` (path `workload/local-host/ai-platform/app/`), which
 `dependsOn` the CRD layer. All application objects live in the
@@ -123,7 +123,7 @@ and the two upstream manifests from the release links in
 ## Bring-up
 
 The AI layer is delivered by Flux from the same OCI artifact as the rest of
-the workload cluster. After a local-host bootstrap run, the root Kustomization
+the platform. After a local-host bootstrap run, the root Kustomization
 creates the two AI Flux Kustomizations; the CRD layer
 (`local-ai-platform-crd`) reconciles, then the app layer
 (`local-ai-platform`) follows as soon as the CRD layer is Ready

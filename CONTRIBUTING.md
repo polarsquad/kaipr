@@ -15,9 +15,9 @@ files must agree, so update both when you change a workflow.
 
 The first pass is a lean, public, laptop-reproducible reference:
 
-- The local-host base (kind + CAPD) and the Rust bootstrap engine are in
-  place, with the `mise run validate` gate and the konflate rendered-review
-  workflow.
+- The local-host base (a single kind cluster and a local OCI registry) and the
+  Rust bootstrap engine are in place, with the `mise run validate` gate and the
+  konflate rendered-review workflow.
 - The AI inference platform (agentgateway + InferencePool + llm-d Router EPP +
   CPU model server + LLM policies) is declared in `workload/local-host/ai-platform/`
   (CRD layer in `crd/`, app layer in `app/`, ordered by `dependsOn`) and
@@ -38,10 +38,9 @@ The first pass is a lean, public, laptop-reproducible reference:
 - Review open pull requests. Rendered Flux diffs make review approachable
   without cluster access.
 
-Ideas that need discussion before code: adding a new environment (cloud or
-otherwise), a change to the bootstrap sequence, anything that touches
-`renovate.json5`, and anything that changes the shape of `bootstrap.toml`.
-Open an issue first.
+Ideas that need discussion before code: adding a new environment, a change to
+the bootstrap sequence, anything that touches `renovate.json5`, and anything
+that changes the shape of `bootstrap.toml`. Open an issue first.
 
 ## Setting up
 
@@ -52,7 +51,7 @@ development and validation.
 git clone https://github.com/polarsquad/kaipr.git
 cd kaipr
 mise trust
-mise install                 # kubectl, kind, flux2, sops, age, helm, clusterctl, ...
+mise install                 # go, kubectl, python, kind, helm, flux2, uv
 docker build -f bootstrap-rs/Dockerfile -t kaipr-toolbox:dev .
 export TOOLBOX_IMAGE=kaipr-toolbox:dev
 mise run validate            # must pass on a clean checkout before you change anything
@@ -68,9 +67,10 @@ Requirements:
 - Node 24 or newer only for a Renovate dry-run.
 - Python 3 for the test scripts under `tests/`.
 
-`mise.local-host.toml` adds the local-host tool layer (flux2, kubectl, and the
-`oci-push` / `kubeconfigs` helper tasks). The helper tasks run in the toolbox
-image (`--entrypoint mise`, see `docs/operations.md`).
+`mise.local-host.toml` adds the local-host environment layer: the
+`KAIPR_PROFILE` default plus the `oci-push`, `kubeconfigs`, and
+`inference-demo` helper tasks. The helper tasks run in the toolbox image
+(`--entrypoint mise`, see `docs/operations.md`).
 
 ## Rules that apply to every change
 
@@ -81,10 +81,10 @@ These come from `AGENTS.md` and are not negotiable.
    converge.
 2. Flux tracks `main`. Nothing reconciles until merged. Do not describe a fix
    as live before then.
-3. No secrets in-tree. Secrets go through SOPS and age: encrypted files are
-   named `*.sops.yaml` and only `data`/`stringData` fields are encrypted.
-   `age.agekey` and `.env` are gitignored and must stay that way. Never commit
-   a plaintext credential, token, or connection string.
+3. No secrets in the stack. This repository ships no SOPS/age chain and no
+   cloud credentials; the AI platform's OpenAI-compatible path needs no API
+   key. If you point at an external model, inject the key as a Kubernetes
+   Secret referenced by the backend, never as a literal in the tree.
 4. Run `mise run validate` before pushing.
 
 Additional conventions:
@@ -134,9 +134,9 @@ Run the checks that match what you touched. CI runs all of them.
 
 | You changed | Run |
 |---|---|
-| Anything | `mise run validate` (shell syntax, `bootstrap.toml` cross-check, every kustomize overlay, toolbox/kubeconfig/docs cross-checks, ruff) |
+| Anything | `mise run validate` (shell syntax, `bootstrap.toml` cross-check, every kustomize overlay, toolbox/OCI/docs cross-checks, ruff) |
 | `README.md` or `docs/` | `python3 tests/test-docs-toolbox-helpers.py` (no bare host mise helper lines) |
-| `mgmt/` or `workload/` YAML | `yamllint` with the CI settings (line length and document start disabled, `*.sops.yaml` ignored) |
+| `workload/` YAML | `yamllint` with the CI settings (line length and document start disabled) |
 | `bootstrap-rs/` | `cargo fmt --check`, `cargo clippy --locked --all-targets -- -D warnings`, `cargo build --locked`, `cargo test --locked` |
 | `renovate.json5` or a pinned version | The pinned dry-run from `AGENTS.md` |
 | `bootstrap.toml` or anything it references | `python3 tests/test-bootstrap-config.py` |
@@ -149,7 +149,7 @@ Run the checks that match what you touched. CI runs all of them.
 - Link the issue. Use `Closes #N` only when the PR completes the whole issue.
 - Expect these automated checks:
   - `validate`: `bootstrap.toml` cross-check, every kustomize overlay, the
-    toolbox/kubeconfig/docs cross-checks, and a Python lint gate.
+    toolbox/OCI/docs cross-checks, and a Python lint gate.
   - `bootstrap-rs`: fmt, clippy, build, test for the Rust CLI.
   - `konflate`: the PR rendered as a Flux diff (blast radius, image changes,
     render failures), posted as a PR comment and required for merge. This job
@@ -173,9 +173,9 @@ model.
 
 - Bugs and proposals: open a GitHub issue. State the commit on `main`, the
   command, and the observed output.
-- Security-sensitive findings (a leaked credential, a bypass of the SOPS
-  chain): do not open a public issue. Report it privately through the
-  repository security advisory form (`SECURITY.md`).
+- Security-sensitive findings (a leaked credential, a literal secret in the
+  tree, or a gap in the no-secrets design): do not open a public issue. Report
+  it privately through the repository security advisory form (`SECURITY.md`).
 
 ## License
 

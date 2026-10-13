@@ -10,13 +10,9 @@ use crate::{capture_lossy, run, run_quiet, Config};
 
 /// Detect a running container engine the way bootstrap.sh does: Docker
 /// first (re-detecting Podman under the `docker` CLI shim, e.g. on macOS),
-/// then Podman. `None` when neither is reachable.
-pub(crate) async fn detect_running() -> Option<String> {
-    detect_running_as("docker", "podman").await
-}
-
-/// `detect_running`, with the Docker/Podman binaries named explicitly so
-/// tests can point at stubs without mutating the process-wide `PATH`.
+/// then Podman. `None` when neither is reachable. The Docker/Podman
+/// binaries are named explicitly so tests can point at stubs without
+/// mutating the process-wide `PATH`.
 async fn detect_running_as(docker: &str, podman: &str) -> Option<String> {
     if run_quiet(docker, &["info"]).await {
         let version = capture_lossy(docker, &["--version"]).await;

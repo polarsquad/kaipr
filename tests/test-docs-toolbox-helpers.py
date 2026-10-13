@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
-"""Docs must not show bare host `mise` helper commands (#423): every helper
-task that interacts with an environment runs through the kaipr-toolbox
-container, and the README carve-out that called moving them a follow-up is
-gone. Host-side by design and therefore allowed: validate, docs-*, and
-inference-demo (the browser is on the host)."""
+"""Docs must not show bare host `mise` helper commands: every helper task
+that interacts with the environment runs through the kaipr-toolbox
+container. Host-side by design and therefore allowed: validate, docs-*,
+and inference-demo (the browser is on the host)."""
 import re
 import subprocess
 import sys
@@ -11,20 +10,22 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
-# Helper tasks this issue moved into the toolbox. A bare `mise run <task>` or
+# Helper tasks that must run in the toolbox. A bare `mise run <task>` or
 # `mise -E <env> run <task>` line inside a fenced block is a regression.
-MOVED_TASKS = (
-    "sops-keygen", "sops-encrypt", "sops-decrypt", "sops-updatekeys",
-    "mgmt-kubeconfig", "kubeconfigs", "oci-push",
-)
+MOVED_TASKS = ("kubeconfigs", "oci-push")
 # Tools whose bare `mise x -- <tool>` form is likewise host-only.
-MOVED_TOOLS = ("sops", "age-keygen")
+MOVED_TOOLS: tuple[str, ...] = ()
 
+parts = [
+    r"(?:-E\s+\S+\s+)?run\s+(?:" + "|".join(map(re.escape, MOVED_TASKS)) + r")"
+]
+if MOVED_TOOLS:
+    parts.append(
+        r"(?:-E\s+\S+\s+)?x\s+--\s+(?:" + "|".join(map(re.escape, MOVED_TOOLS)) + r")"
+    )
+parts.append(r"-E\s+\S+\s+install\b")
 HOST_MISE = re.compile(
-    r"^\s*(?:[A-Za-z_][A-Za-z0-9_]*=\S*\s+)*mise\s+(?:"
-    r"(?:-E\s+\S+\s+)?(?:run\s+(?:%s)\b|x\s+--\s+(?:%s)\b)"
-    r"|-E\s+\S+\s+install\b)"
-    % ("|".join(map(re.escape, MOVED_TASKS)), "|".join(map(re.escape, MOVED_TOOLS)))
+    r"^\s*(?:[A-Za-z_][A-Za-z0-9_]*=\S*\s+)*mise\s+(?:" + "|".join(parts) + r")\b"
 )
 CARVE_OUT = "moving them into the toolbox as well is a follow-up"
 

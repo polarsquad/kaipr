@@ -1,15 +1,17 @@
 # Operations
 
 The `local-host` environment is the only one this repository ships. Everything
-below assumes it; there is no cloud account, no GitHub PAT, and no GPU.
+below assumes it; there is no cloud account, no GitHub PAT, no GPU, and no
+secrets: the single kind cluster is self-contained and its configuration is
+published to a local registry from the checkout.
 
 ## Prerequisites
 
 ### Toolbox container (primary interface)
 
 The toolbox image (`ghcr.io/polarsquad/kaipr-toolbox`) carries
-`kaipr-bootstrap` plus every tool used by bootstrap, pivot, and teardown. The
-host needs the repository checkout and a running Docker engine or Podman 5.5+.
+`kaipr-bootstrap` plus every tool used by bootstrap and teardown. The host
+needs the repository checkout and a running Docker engine or Podman 5.5+.
 
 The toolbox image is published to `ghcr.io/polarsquad/kaipr-toolbox` for Linux
 amd64 and arm64 as `X.Y.Z`, `X.Y`, and stable `latest`, signed with GitHub OIDC
@@ -36,7 +38,9 @@ docker run --rm -it \
 
 This form assumes the standard `/var/run/docker.sock` daemon socket. Use the
 wrapper below for Docker contexts or Podman installations with a different
-host socket.
+host socket. (The positional `local-host` selects the environment; with no
+subcommand the entrypoint runs the bootstrap. Use `"$TOOLBOX_IMAGE" teardown
+local-host` for teardown.)
 
 Podman socket locations differ across rootful Linux, rootless Linux, and
 `podman machine`. Use the checked-in wrapper to resolve the host mount and the
@@ -70,18 +74,17 @@ installed, checks it against mise itself. The wrapper then passes only a fixed
 set of values into the container, built by `build_env_args` from the
 `TOOLBOX_ENV_SPEC` list, split into two groups: mutable (forwarded from whatever
 `.env` or the shell set) and immutable (a value the wrapper computes or
-hardcodes itself; never an operator override, even from `.env`). The
-kaipr-bootstrap CLI's own knobs (`KAIPR_PROFILE`, `REGISTRY_PORT`, ...) are
-covered separately in [bootstrap-cli.md](./bootstrap-cli.md) ("Bootstrap and
-pivot controls").
+hardcodes itself; never an operator override, even from `.env`). The immutable
+keys are `ENGINE_SOCK` (the daemon-side socket kind mounts) and `KUBECONFIG`
+(the single file the CLI reads and rewrites). The kaipr-bootstrap CLI's own
+knobs (`KAIPR_PROFILE`, `REGISTRY_PORT`, ...) are covered separately in
+[bootstrap-cli.md](./bootstrap-cli.md) ("Bootstrap controls").
 
 If an operator value is set for an immutable key, `build_env_args` prints a
-warning to stderr instead of silently discarding it. It does not pass
-`BOOTSTRAP_CONFIG`, `REGISTRY_READY_RETRIES`, `LOCAL_RECONCILE_TIMEOUT`,
-`MGMT_KUBECONFIG`, `MGMT_READY_TIMEOUT`, `MGMT_POLL_INTERVAL`,
-`BOOTSTRAP_KUBECONTEXT`, or the teardown controls `FORCE_KIND_DELETE`,
-`CLUSTER_DELETE_TIMEOUT`, and `PROVIDER_DELETE_TIMEOUT`. Use a raw container run
-with explicit `-e` entries when overriding those values.
+warning to stderr instead of silently discarding it. The wrapper does not pass
+`BOOTSTRAP_CONFIG`, `REGISTRY_READY_RETRIES`, `LOCAL_RECONCILE_TIMEOUT`, or
+`KAIPR_KUBECONFIG`. Use a raw container run with explicit `-e` entries when
+overriding those values.
 
 Inside the toolbox:
 
@@ -89,64 +92,59 @@ Inside the toolbox:
   engine detection, the daemon-side `ENGINE_SOCK` used by kind's socket mount,
   and kind-network attach/detach.
 - Bootstrap joins the `kind` network explicitly after creating (or reusing) the
-  cluster; recreate, pivot, and teardown detach before deleting the bootstrap
-  cluster; teardown re-joins first if it needs the internal API endpoint.
+  cluster; recreate and teardown detach before deleting the cluster; teardown
+  re-joins first if it needs the internal API endpoint.
 - Kind's internal API endpoint and `kaipr-registry:5000` then resolve by name.
-- Host-only CAPD endpoint rewrites are skipped because the recorded endpoints
-  already resolve on that network.
-- On macOS the persisted `.kube/kaipr-mgmt.yaml` keeps the `kind` network
-  address, which Docker Desktop does not route; see
-  [Host-side access after a toolbox local-host run (macOS)](#host-side-access-after-a-toolbox-local-host-run-macos)
-  for the host rewrite.
 - `KUBECONFIG` must name one writable file. The documented invocation uses
   `/workspace/.kube/kind.yaml`, and the CLI replaces it with kind's internal
   kubeconfig after creation.
-- `/root/.kube` maps to the checkout's `.kube/`, so the exported management
-  kubeconfig persists on the host as `.kube/kaipr-mgmt.yaml`.
+- `/root/.kube` maps to the checkout's `.kube/`, so the exported host
+  kubeconfig persists on the host as `.kube/kaipr.yaml`.
 
 ### Helper tasks in the toolbox
 
-The one-off and helper steps (SOPS key work, kubeconfig exports, `oci-push`)
-are mise tasks defined in `mise.toml` and `mise.local-host.toml`. They run in
-the same toolbox image as the lifecycle, by pointing the container's entrypoint
-at `mise` and running the task from the mounted checkout. There is no wrapper
-verb for them; they all follow one of two shapes.
+The one-off and helper steps (kubeconfig exports, `oci-push`) are mise tasks
+defined in `mise.local-host.toml`. They run in the same toolbox image as the
+lifecycle, by pointing the container's entrypoint at `mise` and running the
+task from the mounted checkout. There is no wrapper verb for them.
 
-Repo-only tasks (`sops-*`) run as your own user so the files they write are
-owned by you:
-
-```sh
-export TOOLBOX_IMAGE=ghcr.io/polarsquad/kaipr-toolbox:latest   # or kaipr-toolbox:dev
-docker run --rm -it --user "$(id -u):$(id -g)" -e HOME=/tmp \
-  -v "$PWD:/workspace" -w /workspace \
-  -e MISE_AUTO_INSTALL=0 \
-  --entrypoint mise "$TOOLBOX_IMAGE" run <task> [args]
-```
-
-Cluster tasks (`mgmt-kubeconfig`, `kubeconfigs`, `oci-push`) run as root, with
-the persisted kubeconfig directory and the engine socket mounted like the
-lifecycle run:
+The helper tasks are cluster tasks: they run as root, with the persisted
+kubeconfig directory and the engine socket mounted like the lifecycle run:
 
 ```sh
 docker run --rm -it \
   -v "$PWD:/workspace" -w /workspace \
   -v /var/run/docker.sock:/var/run/docker.sock \
   -v "$PWD/.kube:/root/.kube" \
-  -e KUBECONFIG=/workspace/.kube/kaipr-mgmt.yaml \
+  -e KUBECONFIG=/workspace/.kube/kind.yaml \
   -e MISE_AUTO_INSTALL=0 \
   --entrypoint mise "$TOOLBOX_IMAGE" -E local-host run <task>
+```
+
+`oci-push` additionally needs the kind network and the registry's
+kind-network name, because it pushes to the registry from the network rather
+than through the published host port:
+
+```sh
+docker run --rm -it \
+  -v "$PWD:/workspace" -w /workspace \
+  -v /var/run/docker.sock:/var/run/docker.sock \
+  -v "$PWD/.kube:/root/.kube" \
+  -e KUBECONFIG=/workspace/.kube/kind.yaml \
+  -e MISE_AUTO_INSTALL=0 --network kind \
+  -e REGISTRY_HOST=kaipr-registry -e REGISTRY_PORT=5000 \
+  -e KAIPR_OCI_GIT_SHA -e KAIPR_OCI_GIT_REF -e KAIPR_OCI_SOURCE_URL \
+  --entrypoint mise "$TOOLBOX_IMAGE" -E local-host run oci-push
 ```
 
 Rules that apply to every helper run:
 
 - `--entrypoint mise` bypasses `toolbox-entrypoint.sh`, so `KAIPR_TOOLBOX` is
-  not set. The local-host kubeconfig tasks need it (`-e KAIPR_TOOLBOX=1`)
-  together with `--network kind`: they then keep the CAPD-recorded
-  kind-network endpoint instead of rewriting it to `127.0.0.1`, which inside a
-  container is the container itself. A kubeconfig exported that way works from
-  later toolbox runs on the kind network, not from host `kubectl`.
-- `MISE_AUTO_INSTALL=0` is required. The mounted `mise.toml` pins dev-only tools
-  (`zarf`, `go`) that the image does not carry; without the flag mise tries to
+  not set. That is fine for these tasks: they talk to the engine through the
+  mounted socket and to the registry by the `REGISTRY_HOST`/`REGISTRY_PORT`
+  you pass.
+- `MISE_AUTO_INSTALL=0` is required. The mounted `mise.toml` pins dev-only
+  tools (`go`) that the image does not carry; without the flag mise tries to
   install them, and as a non-root user that fails with `Permission denied`
   under `/usr/local/share/mise`.
 - mise loads `/workspace/.env` (`env_file` in `mise.toml`) and its values
@@ -157,8 +155,7 @@ Rules that apply to every helper run:
 
 Host-side on purpose: `mise run validate` (repository development, see
 [Validation](#validation)) and `mise -E local-host run inference-demo` (the
-browser is on the host; a toolbox form is shown with the local-host chain
-below).
+browser is on the host; see [Verifying the AI platform](#verifying-the-ai-platform)).
 
 ### Verifying a toolbox release
 
@@ -194,12 +191,13 @@ $EDITOR .env
 
 For `local-host` the only values that matter are the optional container-engine
 override (`CONTAINER_ENGINE`) and the optional registry port
-(`REGISTRY_PORT`); there are no cloud credentials to set.
+(`REGISTRY_PORT`); there are no cloud credentials to set and no secrets to
+manage.
 
 Repository-owned lifecycle configuration lives in `bootstrap.toml`. It defines
-the environment names, sync paths, management clusters, imperative chart
-versions, provider manifests, and teardown targets. `kaipr-bootstrap` reads it
-from the working directory unless `BOOTSTRAP_CONFIG` selects another path.
+the environment names, the cluster/registry names, the imperative chart
+versions, and each environment's sync source and path. `kaipr-bootstrap` reads
+it from the working directory unless `BOOTSTRAP_CONFIG` selects another path.
 Runtime environment variables take precedence over configurable defaults, and
 `mise run validate` cross-checks the file against the manifests.
 
@@ -213,32 +211,30 @@ TOOLBOX_IMAGE="$TOOLBOX_IMAGE" scripts/toolbox-run.sh bootstrap local-host
 
 This initial imperative phase performs these steps:
 
-1. Creates the `mgmt` kind cluster.
-2. Starts a local Docker Registry container (`registry:2`) on the host
+1. Creates the `kaipr` kind cluster (or reuses it; `--recreate` replaces it).
+2. Starts a local Docker Registry container (`registry:2`) on the kind network
    (accessible at `localhost:5001` by default, or `kaipr-registry:5000` on the
    kind network). It is idempotent: it restarts if stopped and is a no-op if
    already running.
-3. Installs the Flux Operator (Helm).
-4. Publishes the `mgmt/local-host/` and `workload/local-host/` folders as the
-   initial `kaipr:latest` OCI artifact.
-5. Installs a `FluxInstance` that syncs `mgmt/local-host/` from that artifact
-   and hands off to GitOps.
-6. Pivots: moves the CAPI inventory into the self-managed management cluster
-   and deletes the kind cluster (see [Pivot recovery](#pivot-recovery)).
+3. Publishes the `workload/local-host/` folder as the initial `kaipr:latest`
+   OCI artifact (the path is preserved inside the artifact).
+4. Installs the Flux Operator (Helm, pinned in `bootstrap.toml`).
+5. Installs a `FluxInstance` in `flux-system` that syncs
+   `workload/local-host/` from that artifact and hands off to GitOps.
+6. Waits for reconciliation: the Flux controller, then the root Kustomization
+   `local-ai-platform` and its CRD-layer parent.
+7. Exports the host kubeconfig to `.kube/kaipr.yaml` (in the toolbox; a native
+   run writes `~/.kube/kaipr.yaml`) via `kind get kubeconfig`. kind publishes
+   the API port on localhost, so the file works from the host with no
+   endpoint rewrite.
 
-Flux then installs the CAPI core, kubeadm, and Docker infrastructure providers
-and creates `local-workload`, a one-control-plane/one-worker Kubernetes cluster
-in containers. The management cluster then installs a Flux Operator and
-FluxInstance on `local-workload`; that instance reconciles
-`workload/local-host/` from the same OCI artifact, bringing up the
-`ai-platform` tree. CAPD is intended for local
-development and testing, not production.
+Flux then reconciles `workload/local-host/` from the artifact, bringing up the
+`ai-platform` tree. kind is intended for local development and testing, not
+production.
 
 Together, these stages make `local-host` an end-to-end environment: one command
-bootstraps the management control plane, publishes and reconciles the OCI
-configuration, provisions a workload cluster through CAPI, installs a distinct
-Flux control plane on that cluster, and reconciles a reachable workload. It
-exercises the complete cluster-to-workload GitOps lifecycle locally.
+bootstraps a local cluster, publishes and reconciles the OCI configuration, and
+reconciles a reachable AI platform.
 
 **OCI Registry (local-host environment):**
 - Provides a local container registry for development workflows
@@ -259,7 +255,7 @@ an error. Without an origin, the source is a `file://` URL for the checkout.
 
 **Republish after a change:**
 ```bash
-# Republish the local management and workload folders after making changes.
+# Republish the local workload folder after making changes.
 # Resolve metadata on the host, including when this checkout is a linked worktree.
 export KAIPR_OCI_GIT_SHA="$(git rev-parse HEAD)"
 export KAIPR_OCI_GIT_REF="$(git branch --show-current)"
@@ -270,69 +266,57 @@ docker run --rm -it \
   -v "$PWD:/workspace" -w /workspace \
   -v /var/run/docker.sock:/var/run/docker.sock \
   -v "$PWD/.kube:/root/.kube" \
-  -e KUBECONFIG=/workspace/.kube/kaipr-mgmt.yaml \
+  -e KUBECONFIG=/workspace/.kube/kind.yaml \
   -e MISE_AUTO_INSTALL=0 --network kind -e REGISTRY_HOST=kaipr-registry -e REGISTRY_PORT=5000 \
   -e KAIPR_OCI_GIT_SHA -e KAIPR_OCI_GIT_REF -e KAIPR_OCI_SOURCE_URL \
   --entrypoint mise "$TOOLBOX_IMAGE" -E local-host run oci-push
 
 # Optional overrides: add -e OCI_REPOSITORY=my-config -e OCI_TAG=v1 to the same run.
 
-# FluxInstance pulls and reconciles the artifact's mgmt/local-host kustomization.
-# The bootstrap configures kind's containerd to mirror localhost:5001 to the
-# registry's in-cluster endpoint, kaipr-registry:5000, which is the endpoint
-# the toolbox run above pushes to over the kind network.
+# The FluxInstance pulls and reconciles the artifact's workload/local-host
+# kustomizations. The bootstrap configures kind's containerd to mirror
+# localhost:5001 to the registry's in-cluster endpoint, kaipr-registry:5000,
+# which is the endpoint the toolbox run above pushes to over the kind network.
 ```
 
-The artifact contains only `mgmt/local-host/` and `workload/local-host/`,
-preserving those directory paths when the artifact is pulled. Keeping the
-source scope narrow also prevents local credentials and age private keys
-elsewhere in the repository from being packaged.
+The artifact contains only `workload/local-host/`, preserving that directory
+path when the artifact is pulled. Keeping the source scope narrow keeps the
+artifact small and avoids packaging anything else from the checkout.
 
-Watch reconciliation after a toolbox run with the persisted management
-kubeconfig:
+Watch reconciliation after a toolbox run with the persisted kubeconfig:
 
 ```sh
-export KUBECONFIG="$PWD/.kube/kaipr-mgmt.yaml"
+export KUBECONFIG="$PWD/.kube/kaipr.yaml"
 flux get kustomizations --watch
 ```
 
-After a toolbox `local-host` run on macOS the persisted file carries the
-`kind` Docker network address, which Docker Desktop does not route; export the
-host copy from
-[Host-side access after a toolbox local-host run (macOS)](#host-side-access-after-a-toolbox-local-host-run-macos)
-instead.
+### Exporting the kubeconfig
 
-### Exporting the workload kubeconfig
-
-Export the CAPD workload kubeconfig after the `local-workload` cluster reports
-Ready. The toolbox run keeps the kind-network endpoint, so the file is read back
-through the toolbox too:
+The bootstrap exports the host kubeconfig itself. To re-export it after
+teardown-plus-bootstrap (the published port changes when the cluster container
+is recreated), run the `kubeconfigs` helper task, which writes
+`.kube/kaipr.yaml` from `kind get kubeconfig --name kaipr`:
 
 ```sh
 docker run --rm -it \
   -v "$PWD:/workspace" -w /workspace \
   -v /var/run/docker.sock:/var/run/docker.sock \
   -v "$PWD/.kube:/root/.kube" \
-  -e KUBECONFIG=/workspace/.kube/kaipr-mgmt.yaml \
-  -e MISE_AUTO_INSTALL=0 --network kind -e KAIPR_TOOLBOX=1 \
+  -e MISE_AUTO_INSTALL=0 \
   --entrypoint mise "$TOOLBOX_IMAGE" -E local-host run kubeconfigs
-docker run --rm --network kind -v "$PWD:/workspace" -w /workspace \
-  --entrypoint kubectl "$TOOLBOX_IMAGE" --kubeconfig local-workload.kubeconfig get nodes
 ```
 
-The host task form of `kubeconfigs` still reads the persisted management
-kubeconfig before it can export the workload one, so on macOS it must run
-against the host copy from
-[Host-side access after a toolbox local-host run (macOS)](#host-side-access-after-a-toolbox-local-host-run-macos).
+Because kind publishes the API port on localhost, the exported file works from
+the host and from the toolbox with no endpoint rewrite on any OS.
 
 ### Verifying the AI platform
 
-The workload cluster reconciles `workload/local-host/ai-platform/` from the
-same OCI artifact: the CRD layer (`crd/`) first, then the app
-layer (`app/`) once the CRDs are Ready. Verify the stages of the request path:
+The cluster reconciles `workload/local-host/ai-platform/` from the same OCI
+artifact: the CRD layer (`crd/`) first, then the app layer (`app/`) once the
+CRDs are Ready. Verify the stages of the request path:
 
 ```sh
-export KUBECONFIG="$PWD/.kube/local-workload.kubeconfig"
+export KUBECONFIG="$PWD/.kube/kaipr.yaml"
 
 # model servers (2 replicas, labeled app=vllm-sim)
 kubectl get pods -n ai-platform -l app=vllm-sim
@@ -358,86 +342,26 @@ curl -s http://localhost:18080/v1/chat/completions \
   -d '{"model":"Qwen/Qwen3-32B","messages":[{"role":"user","content":"hi"}],"max_tokens":8}'
 ```
 
-The full component list, the pinned versions, the CRD prerequisites, and the
-vLLM overlay for a real model are in [Inference platform](./inference.md).
-
-The workload uses Kubernetes v1.36.4. A CAPI ClusterResourceSet installs a
-pinned Kindnet daemon as its CNI before the Flux addons are delivered. The
-management cluster needs access to the container-engine socket, which the
-bootstrap mounts automatically.
-
-Local-host bootstrap first waits for the management `flux-apps` Kustomization
-without printing transient `Unknown` status rows. After `flux-apps` becomes
-Ready, it connects to `local-workload`, streams the workload Flux controller
-error logs, and returns after the workload root Kustomization becomes Ready.
-Filtering the workload stream to errors avoids showing normal startup retries
-and advisory messages as apparent failures. Each readiness wait defaults to 15
-minutes and can be changed with `LOCAL_RECONCILE_TIMEOUT` in a raw container or
-fallback native run. The current wrapper does not forward that override.
-
-### Host-side access after a toolbox local-host run (macOS)
-
-The pivot exports the management kubeconfig with the API server address CAPD
-recorded: the `local-management-lb` container IP on the `kind` Docker network.
-Native local-host runs rewrite that address to the localhost port, but toolbox
-runs skip the rewrite (`should_rewrite_capd_endpoint` in
-`bootstrap-rs/src/main.rs`) because the address resolves on the `kind` network
-the toolbox joins. Docker Desktop on macOS runs the engine in a VM and does not
-route the `kind` network from the host, so host commands against the persisted
-`.kube/kaipr-mgmt.yaml` time out. Rewrite a host copy to the port kind publishes
-on localhost:
-
-```sh
-cp .kube/kaipr-mgmt.yaml .kube/kaipr-mgmt.host.yaml
-PORT=$(docker port local-management-lb 6443/tcp | head -1 | sed 's/.*://')
-kubectl config set-cluster local-management --server="https://127.0.0.1:${PORT}" \
-  --kubeconfig .kube/kaipr-mgmt.host.yaml
-```
-
-Use the host copy for every host command that talks to the management cluster:
-
-```sh
-export KUBECONFIG="$PWD/.kube/kaipr-mgmt.host.yaml"
-flux get kustomizations --watch
-```
-
-The host form of the `kubeconfigs` task reads the management kubeconfig before
-it can export the workload one, so run it with the host copy exported; without
-`KAIPR_TOOLBOX` it rewrites the workload endpoint to `127.0.0.1`, and
-`inference-demo` then needs no further changes:
+For a browser interface instead of curl, run the demo host-side (the port
+forward is managed by the task):
 
 ```sh
 mise -E local-host run inference-demo
 ```
 
-The published port belongs to the `local-management-lb` container and stays the
-same while that container exists. It changes when the container is recreated,
-for example after teardown plus bootstrap. Re-run the `docker port` and
-`kubectl config set-cluster` lines whenever `docker port local-management-lb
-6443/tcp` reports a different port than the kubeconfig carries.
+The full component list, the pinned versions, the CRD prerequisites, and the
+vLLM overlay for a real model are in [Inference platform](./inference.md).
 
-With Podman on macOS the same limitation applies inside the podman machine VM;
-use `podman port` in place of `docker port`.
+The cluster runs the kind 0.33.0 default node image, Kubernetes v1.37.0. kind's
+default Kindnet CNI provides networking. The cluster needs access to the
+container-engine socket, which the bootstrap mounts automatically.
 
-On Linux the host routes to the `kind` network directly, so
-`.kube/kaipr-mgmt.yaml` works as-is and no rewrite is needed.
-
-The unaffected alternative is a one-off toolbox container attached to the
-`kind` network, where the recorded address resolves with no rewrite:
-
-```sh
-docker run --rm -it --network kind \
-  -v "$PWD/.kube:/root/.kube" \
-  -e KUBECONFIG=/root/.kube/kaipr-mgmt.yaml \
-  --entrypoint flux \
-  "$TOOLBOX_IMAGE" get kustomizations --watch
-```
-
-Use `--entrypoint kubectl` for kubectl commands. The `mise` helper tasks are
-host forms; run them against the rewritten copy.
-
-Teardown is unaffected: it reads the management kubeconfig from inside the
-toolbox, which is attached to the `kind` network.
+Local-host bootstrap streams the Flux controller error logs while it waits for
+the root Kustomizations, and returns once they are Ready. Filtering the stream
+to errors avoids showing normal startup retries and advisory messages as
+apparent failures. Each readiness wait defaults to 15 minutes and can be
+changed with `LOCAL_RECONCILE_TIMEOUT` in a raw container or fallback native
+run. The current wrapper does not forward that override.
 
 ### Verifying the full chain
 
@@ -445,69 +369,15 @@ For the local-host end-to-end chain:
 
 ```sh
 TOOLBOX_IMAGE="$TOOLBOX_IMAGE" scripts/toolbox-run.sh bootstrap local-host
-docker run --rm -it \
-  -v "$PWD:/workspace" -w /workspace \
-  -v /var/run/docker.sock:/var/run/docker.sock \
-  -v "$PWD/.kube:/root/.kube" \
-  -e KUBECONFIG=/workspace/.kube/kaipr-mgmt.yaml \
-  -e MISE_AUTO_INSTALL=0 --network kind -e KAIPR_TOOLBOX=1 \
-  --entrypoint mise "$TOOLBOX_IMAGE" -E local-host run kubeconfigs
-docker run --rm --network kind -v "$PWD:/workspace" -w /workspace \
-  --entrypoint flux "$TOOLBOX_IMAGE" --kubeconfig local-workload.kubeconfig get all --all-namespaces
+export KUBECONFIG="$PWD/.kube/kaipr.yaml"
+flux get all --all-namespaces
+kubectl get all -n ai-platform
 # then the AI-platform verification above
 ```
 
-The toolbox form above needs no rewrite: the runs stay on the `kind` network.
-Running those steps as host commands instead needs the host copy from
-[Host-side access after a toolbox local-host run (macOS)](#host-side-access-after-a-toolbox-local-host-run-macos)
-in place of `.kube/kaipr-mgmt.yaml`.
-
-Bootstrap does not return until the management and workload root
-Kustomizations are Ready. The final port-forward verifies that the workload
-Flux instance successfully delivered the application.
-
-## Pivot recovery
-
-Bootstrap ends with a pivot: the CAPI inventory moves from the local `mgmt`
-kind cluster into the self-managed management cluster, and the kind cluster is
-deleted. `scripts/toolbox-run.sh bootstrap` runs the pivot by default
-(`BOOTSTRAP_PIVOT=0` opts out). `scripts/toolbox-run.sh pivot` starts the same
-rerun-safe CLI and resumes through the pivot; there is no separate pivot
-subcommand. See [the bootstrap CLI](./bootstrap-cli.md) for its interface and
-controls.
-
-`clusterctl move` is re-runnable: an object is deleted from the source kind
-cluster only after it was created on the target, so kind stays authoritative
-until the final kind deletion. On a clean first run the pivot also WAITS for two
-Flux-driven prerequisites instead of failing fast: the management `Cluster`
-definition (polled up to `MGMT_READY_TIMEOUT`, surfacing failed Kustomizations
-on timeout) and the first target nodes (up to 15m). A timeout in either prints
-the Kustomization or node state and is safe to re-run. If a pivot phase fails:
-
-1. Fix the reported cause.
-2. Re-run the pivot (`scripts/toolbox-run.sh pivot`, or rerun bootstrap) from a
-   checkout of the revision you want self-managed, normally `main`. A fallback
-   native run must use the bootstrap context (`kind-mgmt`;
-   `BOOTSTRAP_KUBECONTEXT` overrides). Toolbox mode selects kind's internal
-   kubeconfig automatically. The CLI reuses an existing healthy `mgmt` kind
-   cluster on rerun.
-3. Set `PIVOT_SKIP_DELETE=1` to keep the kind bootstrap cluster around for
-   inspection once the pivot completes.
-
-> Note: never delete a moved `Cluster` or `Machine` object on the target
-> cluster to work around a failure. The CAPI providers treat deletion as
-> deprovisioning and destroy the real infrastructure (for CAPD, the local
-> containers). Re-run the move instead. Only pure-config duplicates without a
-> move hook (for example a Secret created by hand during a failed install) are
-> safe to delete.
-
-The management kubeconfig is written to `MGMT_KUBECONFIG`, with context
-`kaipr-mgmt`. The toolbox mount makes its `/root/.kube/kaipr-mgmt.yaml` appear
-on the host as `./.kube/kaipr-mgmt.yaml`; a fallback native run defaults to
-`~/.kube/kaipr-mgmt.yaml`. After a toolbox `local-host` run on macOS the file
-carries the `kind` Docker network address; see
-[Host-side access after a toolbox local-host run (macOS)](#host-side-access-after-a-toolbox-local-host-run-macos)
-for host-side use.
+Bootstrap does not return until the root Kustomization is Ready. The final
+port-forward verifies that the Flux instance successfully delivered the
+application.
 
 ## Teardown
 
@@ -518,33 +388,22 @@ TOOLBOX_IMAGE="$TOOLBOX_IMAGE" scripts/toolbox-run.sh teardown local-host
 ```
 
 The retained `./teardown.sh` reference path and a native
-`kaipr-bootstrap teardown [PROFILE]` run are the fallbacks. Teardown reads
-resource names and targets from `bootstrap.toml` and discovers where the CAPI
-controllers are running: the `mgmt` kind cluster before the pivot, or the
-exported self-managed management kubeconfig after it.
+`kaipr-bootstrap teardown [PROFILE]` run are the fallbacks. Teardown reads the
+resource names from `bootstrap.toml` and removes everything the bootstrap
+created, in reverse creation order:
 
-The main controls keep the shell interface:
+1. The exported host kubeconfig (`.kube/kaipr.yaml` in the toolbox,
+   `~/.kube/kaipr.yaml` for a native run).
+2. The local registry container (`kaipr-registry`).
+3. The kind cluster (`kaipr`) and its containers.
 
-| Variable | Default | Effect |
-|---|---|---|
-| `FORCE_KIND_DELETE` | `0` | Literal `1` overrides the final controller-host deletion guard |
-| `CLUSTER_DELETE_TIMEOUT` | `1200` seconds | CAPI cluster deletion wait |
-| `PROVIDER_DELETE_TIMEOUT` | `300` seconds | CAPI provider deletion wait |
-| `MGMT_KUBECONFIG` | `~/.kube/kaipr-mgmt.yaml` (in the toolbox that is the checkout's `.kube/` mount) | Post-pivot controller-host kubeconfig |
-
-The hard preflight for `local-host` requires `kind` and `kubectl`. A
-required-tool failure happens before mutation. The wrapper does not forward the
-teardown controls in the table above; use a raw container invocation with
-explicit `-e` entries or a fallback native run for recovery overrides.
-
-For `local-host`, teardown suspends the cluster Kustomizations, deletes the
-CAPD workload cluster and (pre-pivot) the CAPD management cluster, waits for
-their containers to disappear, removes either the pre-pivot kind cluster or
-the post-pivot self-managed management containers, and removes
-`kaipr-registry` last.
-
-The controller-host guard prevents removal while CAPI workload deletion is
-unconfirmed. Do not bypass it unless you accept orphaned containers.
+Each step is idempotent: a resource that is already absent is skipped, so an
+interrupted run can be resumed by rerunning. Teardown needs a running container
+engine (docker or podman) to remove the registry and the cluster; a
+required-tool failure happens before mutation. There is no CAPI inventory, no
+management cluster, and no cloud resources to unwind. The shell fallback
+(`./teardown.sh`) additionally rejects `AWS_ONLY=1`, since there are no cloud
+resources to sweep.
 
 ## Validation
 
@@ -555,8 +414,8 @@ mise run validate
 ```
 
 The task checks shell syntax for the retained lifecycle scripts, runs the
-`bootstrap.toml` manifest cross-check and the toolbox/doc tests, and builds
-every kustomize overlay under `mgmt/` and `workload/`. It is repository
+`bootstrap.toml` manifest cross-check and the toolbox/OCI/documentation tests,
+and builds every kustomize overlay under `workload/`. It is repository
 development, so it stays a host task on purpose (it needs the pinned Python,
 `uv`, and `kubectl`). Contributors without a host toolchain can run the same
 task in the toolbox, redirecting the uv environment off the mount:
@@ -567,8 +426,7 @@ docker run --rm -v "$PWD:/workspace" -w /workspace \
   --entrypoint mise "$TOOLBOX_IMAGE" run validate
 ```
 
-`.github/workflows/validate.yml` separately builds every overlay, runs the
-Renovate managed-pin coverage tests, cross-checks `bootstrap.toml`, and lints
-YAML on pushes to `main` and on pull requests.
+`.github/workflows/validate.yml` separately builds every overlay, cross-checks
+`bootstrap.toml`, and lints YAML on pushes to `main` and on pull requests.
 `.github/workflows/bootstrap-rs.yml` runs Rust format, clippy, build, and tests,
 then builds and smokes the toolbox image when its inputs change.

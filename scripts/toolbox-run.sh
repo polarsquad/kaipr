@@ -9,13 +9,13 @@ cd "$REPO_ROOT"
 
 usage() {
   cat >&2 <<EOF
-Usage: scripts/toolbox-run.sh <bootstrap|pivot|teardown> [extra kaipr-bootstrap args]
+Usage: scripts/toolbox-run.sh <bootstrap|teardown> [extra kaipr-bootstrap args]
 
 Env:
   TOOLBOX_IMAGE   image reference (default: ghcr.io/polarsquad/kaipr-toolbox:latest;
-                  build locally with: docker build -f bootstrap-rs/Dockerfile \\
+                  build locally with: docker build -f bootstrap-rs/Dockerfile \
                     -t kaipr-toolbox:dev . && TOOLBOX_IMAGE=kaipr-toolbox:dev)
-  KAIPR_PROFILE local-host (the only environment this reference ships;
+  KAIPR_PROFILE   local-host (the only environment this reference ships;
                   default: the mise environment in use)
 EOF
   exit 2
@@ -63,9 +63,9 @@ fi
 # Failure is nonfatal for lifecycle operations that do not publish OCI artifacts.
 unset KAIPR_OCI_GIT_SHA KAIPR_OCI_GIT_REF KAIPR_OCI_SOURCE_URL
 if KAIPR_OCI_GIT_SHA=$(git rev-parse HEAD 2>/dev/null); then
-  KAIPR_OCI_GIT_REF=$(git branch --show-current 2>/dev/null) || KAIPR_OCI_GIT_REF=""
+  KAIPR_OCI_GIT_REF="$(git branch --show-current 2>/dev/null)" || KAIPR_OCI_GIT_REF=""
   KAIPR_OCI_GIT_REF="${KAIPR_OCI_GIT_REF:-detached}"
-  KAIPR_OCI_SOURCE_URL=$(git config --get remote.origin.url 2>/dev/null) || KAIPR_OCI_SOURCE_URL=""
+  KAIPR_OCI_SOURCE_URL="$(git config --get remote.origin.url 2>/dev/null)" || KAIPR_OCI_SOURCE_URL=""
   KAIPR_OCI_SOURCE_URL="${KAIPR_OCI_SOURCE_URL:-file://${REPO_ROOT}}"
   export KAIPR_OCI_GIT_SHA KAIPR_OCI_GIT_REF KAIPR_OCI_SOURCE_URL
 else
@@ -117,13 +117,9 @@ case "$CONTAINER_ENGINE" in
 esac
 
 # Repo-local persistent kubeconfig state (gitignored): the toolbox's internal
-# kind kubeconfig and the exported management kubeconfig live here.
+# kind kubeconfig and the exported host kubeconfig both live under .kube/.
 mkdir -p .kube
 KUBECONFIG_IN=/workspace/.kube/kind.yaml
-
-# Repo-local .gcloud/ directory (generic wrapper wiring; asserted by
-# tests/test-toolbox-run-exec.py).
-CLOUDSDK_CONFIG_IN=/workspace/.gcloud
 
 # Splits TOOLBOX_ENV_SPEC into mutable/immutable -e flags; see
 # docs/operations.md ("Toolbox container").
@@ -152,49 +148,26 @@ TOOLBOX_ENV_SPEC=(
   CONTAINER_ENGINE
   "ENGINE_SOCK=$ENGINE_SOCK_IN"
   KAIPR_PROFILE
-  KAIPR_RUN_ID
-  KAIPR_RUN_TTL
-  KAIPR_REVISION
-  KAIPR_RUN_KIND
   REGISTRY_PORT
   OCI_REPOSITORY
   OCI_TAG
   KAIPR_OCI_GIT_SHA
   KAIPR_OCI_GIT_REF
   KAIPR_OCI_SOURCE_URL
-  BOOTSTRAP_PIVOT
-  PIVOT_SKIP_DELETE
-  GIT_REPO_URL
-  GITHUB_TOKEN
-  GITHUB_USER
-  AGE_KEY_FILE
-  AGE_PUBLIC_KEY
-  AWS_REGION
-  AWS_PROFILE
-  AWS_ACCESS_KEY_ID
-  AWS_SECRET_ACCESS_KEY
-  AWS_SESSION_TOKEN
-  AZURE_SUBSCRIPTION_ID
-  AZURE_LOCATION
-  AZURE_CONFIG_DIR
-  GCP_PROJECT
-  GCP_REGION
   "KUBECONFIG=$KUBECONFIG_IN"
-  "CLOUDSDK_CONFIG=$CLOUDSDK_CONFIG_IN"
 )
 build_env_args "${TOOLBOX_ENV_SPEC[@]}"
 
-# Interactive TTY when run from a terminal (pivot/teardown prompts, ctrl-c).
+# Interactive TTY when run from a terminal (teardown prompts, ctrl-c).
 TTY_ARGS=()
 if [ -t 0 ] && [ -t 1 ]; then
   TTY_ARGS=(-it)
 fi
 
-# The lifecycle command: bootstrap/pivot rerun the CLI (reruns are safe and
-# resume; bootstrap's default exit pivots), teardown uses the subcommand.
+# The lifecycle command: bootstrap takes extra CLI args (e.g. --recreate),
+# teardown uses the subcommand.
 case "$LIFECYCLE" in
   bootstrap) CLI_ARGS=("$@") ;;
-  pivot)     CLI_ARGS=("$@") ;;
   teardown)  CLI_ARGS=(teardown "$@") ;;
   *)         usage ;;
 esac

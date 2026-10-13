@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""OCI publication works with host metadata and inaccessible worktree Git (#426)."""
+"""OCI publication works with host metadata and inaccessible worktree Git."""
 import json
 import os
 from pathlib import Path
@@ -42,9 +42,8 @@ def main():
         git('worktree', 'add', '-b', 'worktree-test', str(checkout))
         (checkout / 'scripts').mkdir()
         shutil.copy(ROOT / 'scripts/toolbox-run.sh', checkout / 'scripts/toolbox-run.sh')
-        for path in ('mgmt/local-host', 'workload/local-host'):
-            (checkout / path).mkdir(parents=True)
-            (checkout / path / 'marker').write_text(path)
+        (checkout / 'workload/local-host').mkdir(parents=True)
+        (checkout / 'workload/local-host' / 'marker').write_text('workload/local-host')
         binary = base / 'bin'
         binary.mkdir()
         log = base / 'log.json'
@@ -54,7 +53,7 @@ def main():
             file.chmod(0o755)
         stub('docker', "import os,sys,json\nif sys.argv[1]=='run':\n json.dump({'env':{k:os.environ.get(k) for k in " + repr(KEYS) + "},'args':sys.argv[1:]},open(os.environ['OCI_TEST_LOG'],'w'))\n")
         stub('curl', 'pass\n')
-        stub('flux', "import sys,os,json\nfrom pathlib import Path\na=sys.argv[1:]\np=Path(next(x[7:] for x in a if x.startswith('--path=')))\nassert sorted(str(f.relative_to(p)) for f in p.rglob('*') if f.is_file())==['mgmt/local-host/marker','workload/local-host/marker']\nassert (p/'mgmt/local-host/marker').read_text()=='mgmt/local-host'\nassert (p/'workload/local-host/marker').read_text()=='workload/local-host'\njson.dump(a,open(os.environ['OCI_TEST_LOG'],'w'))\n")
+        stub('flux', "import sys,os,json\nfrom pathlib import Path\na=sys.argv[1:]\np=Path(next(x[7:] for x in a if x.startswith('--path=')))\nassert sorted(str(f.relative_to(p)) for f in p.rglob('*') if f.is_file())==['workload/local-host/marker']\nassert (p/'workload/local-host/marker').read_text()=='workload/local-host'\njson.dump(a,open(os.environ['OCI_TEST_LOG'],'w'))\n")
         env = {k: v for k, v in os.environ.items() if k not in KEYS}
         env.update(PATH=f'{binary}:{env["PATH"]}', CONTAINER_ENGINE='docker', OCI_TEST_LOG=str(log))
         sha = git('rev-parse', 'HEAD', cwd=checkout)

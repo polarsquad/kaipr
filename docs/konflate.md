@@ -13,9 +13,9 @@ two, so a review shows:
 - **Danger lint**: cautions on risky changes.
 
 In this repository konflate runs as a one-shot service container inside a
-GitHub Actions job. There is no in-cluster konflate instance: the
-`local-host` management cluster is a local kind cluster that GitHub-hosted
-runners cannot reach, so CI renders on its own. The review is a merge gate.
+GitHub Actions job. There is no in-cluster konflate instance: the `local-host`
+cluster is a local kind cluster that GitHub-hosted runners cannot reach, so CI
+renders on its own. The review is a merge gate.
 
 ## The workflow
 
@@ -54,8 +54,8 @@ fork's branch inside the repository to obtain the render before merging.
 ## What the render covers
 
 The render reads the repository's Flux Kustomizations from the repo root
-(`./mgmt/local-host/...`, `./workload/local-host/...`). Because the
-`local-host` environment syncs from an OCI artifact rather than a live
-`GitRepository`, the render reflects the declared Git state at the PR head -
-the same state a bootstrap would publish. A change to any kustomization under
-`mgmt/` or `workload/` is what the blast-radius and image-change analysis sees.
+(`./workload/local-host/...`). Because the `local-host` environment syncs from
+an OCI artifact rather than a live `GitRepository`, the render reflects the
+declared Git state at the PR head - the same state a bootstrap would publish.
+A change to any kustomization under `workload/` is what the blast-radius and
+image-change analysis sees.

@@ -22,6 +22,9 @@ You do not need Kubernetes experience to follow the quickstart, but the
 machine does need a way to run [Docker](https://www.docker.com/) (or
 [Podman 5.5+](https://podman.io/)).
 
+A complete end-to-end walkthrough of the demo, from bootstrap to the live
+chat page, is in [QUICKSTART.md](QUICKSTART.md).
+
 ## What you get
 
 - One local Kubernetes cluster on your host, running the whole platform in
@@ -88,6 +91,7 @@ scripts/toolbox-run.sh teardown
 
 ```
 .
+├── QUICKSTART.md               # end-to-end demo walkthrough
 ├── bootstrap.toml              # environment + chart config for kaipr-bootstrap
 ├── bootstrap.sh                # local-host lifecycle: kind, Flux seed, reconcile
 ├── teardown.sh                 # reverse-order cleanup

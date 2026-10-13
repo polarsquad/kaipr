@@ -239,7 +239,7 @@ fn default_kubeconfig() -> Result<PathBuf> {
 // ── Pure helpers (unit-tested) ────────────────────────────────────────────────
 
 /// Extract the numeric host port from `<engine> port` output ("0.0.0.0:32771").
-fn extract_workload_port(port_output: &str) -> Option<String> {
+fn extract_published_port(port_output: &str) -> Option<String> {
     port_output
         .lines()
         .next()
@@ -615,7 +615,7 @@ async fn bootstrap_local_registry(
         // host-port binding and the kind-network attachment; a stale
         // container bound elsewhere or detached from the network answers
         // the host readiness check and then fails in-cluster.
-        let port_matches = extract_workload_port(
+        let port_matches = extract_published_port(
             &capture_lossy(engine, &["port", registry_name, "5000/tcp"]).await,
         )
         .is_some_and(|p| p.parse::<u16>().is_ok_and(|p| p == port));
@@ -1377,18 +1377,18 @@ mod tests {
     }
 
     #[test]
-    fn extract_workload_port_parses_engine_output() {
+    fn extract_published_port_parses_engine_output() {
         assert_eq!(
-            extract_workload_port("0.0.0.0:32771\n[::]:32771\n").as_deref(),
+            extract_published_port("0.0.0.0:32771\n[::]:32771\n").as_deref(),
             Some("32771")
         );
         assert_eq!(
-            extract_workload_port("127.0.0.1:6443\n").as_deref(),
+            extract_published_port("127.0.0.1:6443\n").as_deref(),
             Some("6443")
         );
-        assert_eq!(extract_workload_port(""), None);
-        assert_eq!(extract_workload_port("garbage\n"), None);
-        assert_eq!(extract_workload_port("0.0.0.0:\n"), None);
+        assert_eq!(extract_published_port(""), None);
+        assert_eq!(extract_published_port("garbage\n"), None);
+        assert_eq!(extract_published_port("0.0.0.0:\n"), None);
     }
 
     #[test]

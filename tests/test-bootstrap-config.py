@@ -95,6 +95,26 @@ def main() -> int:
                 f"charts.{chart} is imperative but also reconciled by {flux_charts[chart]}"
             )
 
+    # The native shell seed hardcodes its own copy of the flux-operator
+    # chart version. It must equal the renovate-managed pin in
+    # bootstrap.toml, or the toolbox and native bootstrap paths install
+    # different chart versions after an update.
+    flux_pin = charts.get("flux-operator")
+    if flux_pin:
+        common_path = REPO_ROOT / "bootstrap-common.sh"
+        common_text = common_path.read_text(encoding="utf-8") if common_path.is_file() else ""
+        match = re.search(r'^FLUX_OPERATOR_CHART_VERSION="([^"]+)"$', common_text, re.MULTILINE)
+        if match is None:
+            failures.append(
+                "bootstrap-common.sh does not declare FLUX_OPERATOR_CHART_VERSION; "
+                "the native seed's pin cannot be cross-checked"
+            )
+        elif match.group(1) != flux_pin:
+            failures.append(
+                f"bootstrap-common.sh FLUX_OPERATOR_CHART_VERSION '{match.group(1)}' does not "
+                f"match bootstrap.toml charts.flux-operator '{flux_pin}'"
+            )
+
     for name, env in environments.items():
         kind = env.get("kind")
         if kind != name:

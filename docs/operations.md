@@ -13,11 +13,11 @@ The toolbox image (`ghcr.io/polarsquad/kaipr-toolbox`) carries
 `kaipr-bootstrap` plus every tool used by bootstrap and teardown. The host
 needs the repository checkout and a running Docker engine or Podman 5.5+.
 
-The toolbox image is published to `ghcr.io/polarsquad/kaipr-toolbox` for Linux
-amd64 and arm64 as `X.Y.Z`, `X.Y`, and stable `latest`, signed with GitHub OIDC
-and carrying a Syft SPDX JSON SBOM attestation. The `toolbox-release` workflow
-publishes those tags from a matching `v*` tag. Use a published tag, or build the
-current checkout only for unreleased changes:
+When a `v*` tag is pushed, the `toolbox-release` workflow publishes
+`ghcr.io/polarsquad/kaipr-toolbox` for Linux amd64 and arm64 as `X.Y.Z`, `X.Y`,
+and stable `latest`, signed with GitHub OIDC and carrying a Syft SPDX JSON SBOM
+attestation. No release has been published yet, so build the current checkout
+and use that image:
 
 ```sh
 docker build -f bootstrap-rs/Dockerfile -t kaipr-toolbox:dev .

@@ -96,7 +96,8 @@ scripts/toolbox-run.sh teardown
 │   ├── Dockerfile              # the toolbox image (mise + podman remote client)
 │   └── src/
 ├── scripts/
-│   └── toolbox-run.sh          # Docker/Podman wrapper for the toolbox
+│   ├── toolbox-run.sh          # Docker/Podman wrapper for the toolbox
+│   └── inference-demo.py       # browser chat page in front of the gateway
 ├── workload/
 │   └── local-host/             # the cluster's apps, delivered from Git
 │       ├── ai-platform/        #   the AI inference platform

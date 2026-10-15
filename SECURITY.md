@@ -73,11 +73,15 @@ Out of scope:
 Knowing the existing controls helps frame whether a finding is a bypass or a
 gap.
 
-- No secrets are in-tree, and the reference needs none: `local-host` uses no
-  cloud credentials, no API keys, and no SOPS/age chain. `.env` is gitignored
-  and only carries optional container-engine and port knobs. If an operator
-  points the backend at an external model, the key is injected as a
-  Kubernetes Secret referenced by the backend, never as a literal.
+- Secrets are in-tree only as SOPS-encrypted `*.sops.yaml` manifests under
+  `workload/` (only `data`/`stringData` is encrypted, so Git carries no
+  plaintext credential). The age private key is local and gitignored
+  (`age.agekey`); bootstrap seeds it as the `sops-age` secret in
+  `flux-system`, the cluster's only decryption path. There are no cloud
+  credentials. `.env` is gitignored and only carries optional container-
+  engine and port knobs. If an operator points the backend at an external
+  model, the key is encrypted into a `*.sops.yaml` manifest (see
+  `docs/secrets.md`), never committed as a literal.
 - The AI platform's OpenAI-compatible path needs no API key; the CPU
   simulator produces model-shaped completions without a backend.
 - The `konflate` PR review workflow uses only the workflow `GITHUB_TOKEN`

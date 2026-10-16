@@ -320,19 +320,22 @@ CRDs are Ready. Verify the stages of the request path:
 ```sh
 export KUBECONFIG="$PWD/.kube/kaipr.yaml"
 
-# model servers (2 replicas, labeled app=vllm-sim)
+# model servers (2 replicas app=vllm-sim, 1 replica app=vllm-sim-8b)
 kubectl get pods -n ai-platform -l app=vllm-sim
+kubectl get pods -n ai-platform -l app=vllm-sim-8b
 
-# the pool selects them and references the EPP
+# each pool selects its model's pods and references its EPP
 kubectl get inferencepool vllm-sim -n ai-platform
-kubectl get deployment vllm-sim-epp -n ai-platform
+kubectl get inferencepool vllm-sim-8b -n ai-platform
+kubectl get deployment vllm-sim-epp vllm-sim-8b-epp -n ai-platform
 
 # the LLM route is PROGRAMMED and ATTACHED to the gateway
 kubectl get httproute vllm-sim-llm -n ai-platform -o jsonpath='{.status.conditions}'
 
-# the agentgateway LLM policies are bound
-kubectl get agentgatewaybackend vllm-sim -n ai-platform
-kubectl get agentgatewaypolicy vllm-sim-token-budget -n ai-platform
+# the agentgateway LLM policies are bound (Accepted=True means the
+# AgentgatewayBackend translated, including the custom provider)
+kubectl get agentgatewaybackend vllm-sim vllm-sim-8b -n ai-platform
+kubectl get agentgatewaypolicy -n ai-platform
 ```
 
 Then send a chat request through the gateway:

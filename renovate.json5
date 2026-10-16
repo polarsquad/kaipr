@@ -108,6 +108,26 @@
     },
     {
       "customType": "regex",
+      "description": "mise: sops pin",
+      "managerFilePatterns": ["/(^|/)mise\\.toml$/"],
+      "matchStrings": ["sops = \"(?<currentValue>[^\"]+)\""],
+      "depNameTemplate": "getsops/sops",
+      "datasourceTemplate": "github-releases",
+      "extractVersionTemplate": "^v(?<version>.+)",
+      "autoReplaceStringTemplate": "sops = \"{{newValue}}\""
+    },
+    {
+      "customType": "regex",
+      "description": "mise: age pin",
+      "managerFilePatterns": ["/(^|/)mise\\.toml$/"],
+      "matchStrings": ["age = \"(?<currentValue>[^\"]+)\""],
+      "depNameTemplate": "FiloSottile/age",
+      "datasourceTemplate": "github-releases",
+      "extractVersionTemplate": "^v(?<version>.+)",
+      "autoReplaceStringTemplate": "age = \"{{newValue}}\""
+    },
+    {
+      "customType": "regex",
       "description": "mise: min_version self-pin",
       "managerFilePatterns": ["/(^|/)mise\\.toml$/"],
       "matchStrings": ["min_version = \"(?<currentValue>[^\"]+)\""],

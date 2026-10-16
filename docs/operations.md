@@ -191,8 +191,10 @@ $EDITOR .env
 
 For `local-host` the only values that matter are the optional container-engine
 override (`CONTAINER_ENGINE`) and the optional registry port
-(`REGISTRY_PORT`); there are no cloud credentials to set and no secrets to
-manage.
+(`REGISTRY_PORT`); there are no cloud credentials to set, and the only
+secrets the tree carries are SOPS-encrypted `*.sops.yaml` manifests (the age
+private key stays local in gitignored `age.agekey`; see [Secret
+management](./secrets.md)).
 
 Repository-owned lifecycle configuration lives in `bootstrap.toml`. It defines
 the environment names, the cluster/registry names, the imperative chart

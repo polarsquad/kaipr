@@ -2,8 +2,10 @@
 
 kaipr is a reference that shows how to run a complete **AI platform** on a
 single computer using Kubernetes and GitOps, with no cloud account, no GPU,
-and no secrets. You run one command, and a Kubernetes cluster with an AI
-inference gateway comes up from a single folder of YAML in Git.
+and no plaintext secrets: the tree carries credentials only as SOPS-encrypted
+`*.sops.yaml` manifests under `workload/` ([Secret management](docs/secrets.md)).
+You run one command, and a Kubernetes cluster with an AI inference gateway
+comes up from a single folder of YAML in Git.
 
 It has two halves in one repository:
 
@@ -33,7 +35,9 @@ chat page, is in [QUICKSTART.md](QUICKSTART.md).
   a token budget.
 - One Git repository as the source of truth: change a file, push it, and the
   cluster converges to match. No second toolchain, no state file, no cloud
-  credentials, no secrets in the tree.
+  credentials, and no plaintext secrets in the tree: SOPS-encrypted
+  `*.sops.yaml` manifests under `workload/` are the only secret-bearing files
+  ([Secret management](docs/secrets.md)).
 
 ## Quickstart
 

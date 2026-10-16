@@ -37,8 +37,8 @@ pub struct BootstrapSection {
 /// The Flux sync source for an environment (`[environments.<name>].sync`):
 /// where the cluster's FluxInstance pulls its configuration from. The
 /// repository ships the OCI source only: the artifact is published from
-/// the checkout to the local registry, so the stack carries no secrets and
-/// no Git clone credentials.
+/// the checkout to the local registry, so the stack carries no plaintext
+/// secrets and no Git clone credentials.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum SyncSource {

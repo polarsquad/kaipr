@@ -11,10 +11,12 @@ safely in Git and Flux decrypts them at reconcile time.
   (`bootstrap-common.sh`) loads it into the cluster as the `sops-age` secret
   in `flux-system`.
 
-There are no encrypted manifests in the tree yet; the first consumer is the
-Azure OpenAI API key (`azure-openai-key.sops.yaml`, issue #23). Encrypted
-manifests are consumed by the `local-ai-platform` Kustomization, which
-declares:
+The tree currently carries one encrypted manifest:
+`workload/local-host/ai-platform/app/secrets/anthropic-key.sops.yaml`, the
+Anthropic API key consumed by the `anthropic-llm` backend (see
+[Multi-provider](./inference.md#multi-provider-anthropic-hosted)). The next
+candidate is the Azure OpenAI API key (issue #23). Encrypted manifests are
+consumed by the `local-ai-platform` Kustomization, which declares:
 
 ```yaml
 spec:

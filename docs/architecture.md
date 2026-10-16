@@ -56,7 +56,7 @@ flowchart TD
     subgraph cluster["Single kind cluster: kaipr (Docker containers)"]
         FS["flux-system: Flux (FluxInstance)"]
         CRD["ai-platform/crd (CRD layer)"]
-        APP["ai-platform/app: agentgateway + model-server<br/>+ InferencePool + llm-d Router EPP + policies"]
+        APP["ai-platform/app: agentgateway + model-server<br/>+ InferencePool + llm-d Router EPP + policies + secrets"]
         FS --> CRD
         CRD -->|dependsOn| APP
     end

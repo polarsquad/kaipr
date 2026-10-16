@@ -1,19 +1,15 @@
 .wip/*
+.worktrees/
 .setup/*
 .env
 .copier-answers.yml
 .DS_Store
-
-# Toolbox container kubeconfig state (scripts/toolbox-run.sh)
 .kube/
-
-# Hermes agent workspace (local plans, never part of the repo)
 .hermes/
 __pycache__/
 build/
 .venv/
 .pytest_cache/
 .ruff_cache/
-
-# Personal Claude Code overrides (permissions, etc.), not team-shared config
+*.agekey
 .claude/settings.local.json

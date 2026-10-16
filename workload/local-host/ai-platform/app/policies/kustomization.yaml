@@ -6,4 +6,6 @@ resources:
   - llm-route.yaml
   - model-routing.yaml
   - guardrail.yaml
+  - anthropic-backend.yaml
+  - anthropic-llm.yaml
   - token-budget.yaml

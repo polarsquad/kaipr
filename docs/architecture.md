@@ -9,8 +9,10 @@ publishes this checkout to a local OCI registry, and seeds Flux with a
 the seed, Git is the source of truth and the bootstrap is done.
 
 There is no management cluster, no [Cluster API](https://cluster-api.sigs.k8s.io/)
-(CAPI/CAPD), no pivot, and no secrets: the stack reconciles everything from
-the local registry artifact, and the repository carries no credentials.
+(CAPI/CAPD), no pivot, and no plaintext secrets: the stack reconciles
+everything from the local registry artifact, and the repository carries no
+credentials except SOPS-encrypted `*.sops.yaml` manifests under `workload/`
+(the age private key never enters Git; see [Secret management](./secrets.md)).
 
 The GitOps scaffolding (bootstrap engine, toolbox, and repository layout) is
 derived from [krops](https://github.com/polarsquad/krops). krops ships
@@ -31,7 +33,9 @@ reconciliation architecture.
 `local-host` replaces the cloud provider with a local Docker container
 (kind) and replaces GitHub with a local in-memory OCI registry
 (`kaipr-registry:5000`). It reconciles the `ai-platform` end to end on a
-single host. No GitHub PAT, no cloud account, no GPU, no secrets.
+single host. No GitHub PAT, no cloud account, no GPU, and no plaintext
+secrets: the tree carries credentials only as SOPS-encrypted `*.sops.yaml`
+manifests under `workload/` (see [Secret management](./secrets.md)).
 
 See the architecture diagram in
 [docs/local-host-infra.svg](local-host-infra.svg).

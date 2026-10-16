@@ -81,10 +81,15 @@ These come from `AGENTS.md` and are not negotiable.
    converge.
 2. Flux tracks `main`. Nothing reconciles until merged. Do not describe a fix
    as live before then.
-3. No secrets in the stack. This repository ships no SOPS/age chain and no
-   cloud credentials; the AI platform's OpenAI-compatible path needs no API
-   key. If you point at an external model, inject the key as a Kubernetes
-   Secret referenced by the backend, never as a literal in the tree.
+3. No plaintext secrets in the stack. Secrets enter the tree only as
+   SOPS-encrypted `*.sops.yaml` manifests under `workload/` (only
+   `data`/`stringData` is encrypted); the age private key stays local and
+   gitignored, never committed, and the `sops-age` cluster secret is created
+   by bootstrap from it. `local-host` still uses no cloud credentials, and
+   the AI platform's OpenAI-compatible path needs no API key. If you point at
+   an external model, encrypt the key into a `*.sops.yaml` manifest (see
+   `docs/secrets.md`) so the backend reads it from a Kubernetes Secret -
+   never as a literal in the tree.
 4. Run `mise run validate` before pushing.
 
 Additional conventions:

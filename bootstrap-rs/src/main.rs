@@ -9,7 +9,8 @@
 //! cluster instead.
 //!
 //! The bootstrap creates ONE kind cluster that runs the whole platform
-//! (issue #14): no CAPI, no pivot, no management cluster, no secrets.
+//! (issue #14): no CAPI, no pivot, no management cluster, no plaintext
+//! secrets.
 //! Everything repository-specific (names, paths, chart pins, environments)
 //! comes from `bootstrap.toml` (see `config.rs`); the binary is a generic
 //! bootstrap engine and kaipr is its first consumer.

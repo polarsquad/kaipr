@@ -1,6 +1,11 @@
 .wip/*
 .setup/*
 .env
+
+# SOPS age PRIVATE key — the public key in .sops.yaml is safe to commit
+*.agekey
+age.agekey
+
 .copier-answers.yml
 .DS_Store
 

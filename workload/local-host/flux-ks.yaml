@@ -45,3 +45,11 @@ spec:
   wait: true
   dependsOn:
     - name: local-ai-platform-crd
+  # SOPS decryption for *.sops.yaml manifests in this tree (see
+  # docs/secrets.md). The sops-age secret is seeded by bootstrap in
+  # flux-system, this Kustomization's own namespace, where the secretRef
+  # resolves.
+  decryption:
+    provider: sops
+    secretRef:
+      name: sops-age

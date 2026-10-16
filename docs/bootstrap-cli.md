@@ -10,7 +10,9 @@ The binary is the generic bootstrap engine carried over from
 agnostic: it reads everything repo-specific from
 [`bootstrap.toml`](../bootstrap.toml). This reference enables exactly one
 environment, `local-host`, so the whole thing runs on a laptop with no cloud
-account and no secrets.
+account and no plaintext secrets (the only secrets the tree carries are
+SOPS-encrypted `*.sops.yaml` manifests under `workload/`; see [Secret
+management](./secrets.md)).
 
 The binary is a behavioral port of `bootstrap.sh` and `teardown.sh`. It
 preserves their step order, progress messages, environment interface, and

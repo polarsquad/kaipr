@@ -41,7 +41,8 @@ reference scopes it to a single environment (`local-host`) via
     (namespace, vendored Gateway API + Inference Extension CRDs, the
     agentgateway.dev CRDs HelmRelease); `app/` is the app layer
     (`agentgateway/`, `model-server/` (the CPU vLLM simulator),
-    `inference/` (InferencePool + llm-d Router EPP), and `policies/`
+    `inference/` (InferencePool + llm-d Router EPP), `secrets/`
+    (SOPS-encrypted provider keys), and `policies/`
     (AgentgatewayBackend, LLM route, token-budget policy)). `flux-ks.yaml`
     defines the two Flux Kustomizations; the app layer `dependsOn` the CRD
     layer (first-boot ordering: Flux dry-runs a tree before applying it).

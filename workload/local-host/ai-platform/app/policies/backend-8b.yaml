@@ -1,0 +1,23 @@
+# The LLM-aware backend for the second model (Qwen/Qwen3-8B). Same shape as
+# backend.yaml; it wraps the vllm-sim-8b InferencePool so this model also
+# gets the LLM pipeline (token counting, token budget, guardrails).
+apiVersion: agentgateway.dev/v1alpha1
+kind: AgentgatewayBackend
+metadata:
+  name: vllm-sim-8b
+  namespace: ai-platform
+spec:
+  ai:
+    provider:
+      custom:
+        backendRef:
+          group: inference.networking.k8s.io
+          kind: InferencePool
+          name: vllm-sim-8b
+        model: Qwen/Qwen3-8B
+        formats:
+          # In this agentgateway API the OpenAI chat-completions format is
+          # named Completions; its default upstream path is
+          # /v1/chat/completions, and formats[].type must be unique.
+          - type: Completions
+            path: /v1/chat/completions

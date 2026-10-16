@@ -1,0 +1,49 @@
+# Second model-server pool: one sim replica serving a different model
+# (Qwen/Qwen3-8B). Its pod label app: vllm-sim-8b is what the second
+# InferencePool (../inference/router-8b.yaml) selects by. llm-d's reference
+# shape is one InferencePool per base model, so the two models live in two
+# pools and the gateway routes between them by the requested model name
+# (../policies/model-routing.yaml + the rules in ../policies/llm-route.yaml).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vllm-sim-8b
+  namespace: ai-platform
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: vllm-sim-8b
+  template:
+    metadata:
+      labels:
+        app: vllm-sim-8b
+        inference.networking.k8s.io/engine-type: vllm
+    spec:
+      containers:
+        - name: vllm-sim-8b
+          image: ghcr.io/llm-d/llm-d-inference-sim:v0.8.2
+          args:
+            - --model
+            - Qwen/Qwen3-8B
+            - --port
+            - "8000"
+          env:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+          ports:
+            - containerPort: 8000
+              name: http
+              protocol: TCP
+          resources:
+            requests:
+              cpu: 10m
+            limits:
+              cpu: 200m
+              memory: 128Mi

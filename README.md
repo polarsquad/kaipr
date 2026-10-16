@@ -18,7 +18,9 @@ It has two halves in one repository:
   gateway that routes AI chat requests to a model, picks the best model server
   for each request, and enforces token budgets. The model runs as a CPU
   simulator by default, so you can try the whole thing with no hardware or API
-  keys.
+  keys. An optional second route sends Anthropic Messages API requests to the
+  hosted Anthropic API; its key is the one SOPS-encrypted credential in the
+  tree ([Secret management](docs/secrets.md)).
 
 You do not need Kubernetes experience to follow the quickstart, but the
 machine does need a way to run [Docker](https://www.docker.com/) (or
@@ -75,6 +77,7 @@ stays up until you Ctrl-C the terminal running or kill the processes.
 - [Bootstrap CLI](docs/bootstrap-cli.md) - the `kaipr-bootstrap` engine and its knobs
 - [Dependencies](docs/dependencies.md) - version surfaces and the update procedure
 - [Extending the reference](docs/extending.md) - adding an app
+- [Secret management](docs/secrets.md) - the SOPS + age machinery, key lifecycle, and rotation
 - [PR review: konflate](docs/konflate.md) - rendering Flux resources for review
 
 ## Repository layout
@@ -91,12 +94,13 @@ stays up until you Ctrl-C the terminal running or kill the processes.
 │   └── src/
 ├── scripts/
 │   ├── toolbox-run.sh          # Docker/Podman wrapper for the toolbox
-│   └── inference-demo.py       # browser chat page in front of the gateway
+│   ├── inference-demo.py       # browser chat page in front of the gateway
+│   └── token-budget-demo.sh    # burns the token budget to show the 429 path
 ├── workload/
 │   └── local-host/             # the cluster's apps, delivered from Git
 │       ├── ai-platform/        #   the AI inference platform
 │       │   ├── crd/            #     CRDs: vendored gateway-api + agentgateway-crds
-│       │   └── app/            #     agentgateway, model-server, inference, policies
+│       │   └── app/            #     agentgateway, model-server, inference, policies, secrets
 │       └── flux-ks.yaml        #   the two Flux Kustomizations (app dependsOn crd)
 ├── tests/                      # self-contained cross-checks (run by mise validate)
 ├── docs/

@@ -3,4 +3,6 @@ kind: Kustomization
 resources:
   - backend.yaml
   - llm-route.yaml
+  - anthropic-backend.yaml
+  - anthropic-llm.yaml
   - token-budget.yaml

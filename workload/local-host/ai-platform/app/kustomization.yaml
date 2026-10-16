@@ -8,3 +8,4 @@ resources:
   - ./model-server
   - ./inference
   - ./policies
+  - ./secrets

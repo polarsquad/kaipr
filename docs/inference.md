@@ -23,7 +23,8 @@ then `local-ai-platform` (path `workload/local-host/ai-platform/app/`), which
 | agentgateway | `ai-platform/app/agentgateway/` | the control plane (controller), the `agentgateway` GatewayClass, the `inference-gateway` Gateway, and the self-deployed data plane |
 | Model server | `ai-platform/app/model-server/` | a CPU-reproducible vLLM stand-in (`vllm-sim`) |
 | llm-d Router | `ai-platform/app/inference/` | the `InferencePool` + EPP Deployment/Service (no HTTPRoute) |
-| LLM policies | `ai-platform/app/policies/` | the `AgentgatewayBackend`, the single LLM `HTTPRoute`, and a token-budget `AgentgatewayPolicy` |
+| LLM policies | `ai-platform/app/policies/` | the two `AgentgatewayBackend`s (self-hosted `vllm-sim`, hosted `anthropic-llm`), the two LLM `HTTPRoute`s, and a token-budget `AgentgatewayPolicy` |
+| Secrets | `ai-platform/app/secrets/` | the SOPS-encrypted `anthropic-key` Secret (the Anthropic API key) |
 
 Pinned versions (Renovate tracks the OCI/Git tags):
 
@@ -45,7 +46,9 @@ custom-provider translation - do not pin it for an inference reference.
 
 ## The request path
 
-There is one route on the gateway, and it carries the whole pipeline:
+The self-hosted path is one route on the gateway, and it carries the whole
+pipeline (the hosted Anthropic path is a second, parallel route - see
+[Multi-provider](#multi-provider-anthropic-hosted)):
 
 ```
 Client
@@ -233,6 +236,48 @@ Because the label and port match the InferencePool, the EPP, the
 AgentgatewayBackend, and the LLM route all keep working unchanged. This is the
 "simulated now, real later" split the reference is built around.
 
+## Multi-provider: Anthropic (hosted)
+
+The gateway serves one more provider next to the self-hosted one: the hosted
+Anthropic API. The two providers are selected by path, not by the model field:
+
+| Client path | Provider | Wire format |
+|---|---|---|
+| `POST /v1/chat/completions` | `vllm-sim` (self-hosted: InferencePool + EPP) | OpenAI chat completions |
+| `POST /v1/messages` | `anthropic-llm` (hosted Anthropic API) | Anthropic Messages API |
+
+- **The native path.** The Anthropic provider's wire contract is the
+  Anthropic Messages API, not OpenAI chat completions, so it gets its own
+  client-facing `HTTPRoute` (`anthropic-llm`, `PathPrefix /v1/messages`). No
+  PreRouting content routing is needed: because the two providers speak
+  different wire formats, the path selects the provider (a cross-format
+  model-field route would require the pipeline to translate between
+  formats). On the pinned v1.6.0, the LLM pipeline accepts the Anthropic
+  request shape (string or content-block messages, `max_tokens`, etc.) and
+  returns the completion in the OpenAI chat-completions response shape.
+  That is the documented default: without a traffic-type rule, all
+  traffic is handled as the `completions` type. The pinned v1.6.0 CRD
+  does expose per-path rules as `AgentgatewayBackend
+  spec.policies.ai.routes` (keys are URL path suffixes matched ends-with,
+  values include `Messages`, `Completions`, `Passthrough`); pinning
+  `/v1/messages` to the `Messages` type is tracked in issue #27.
+  Clients of this reference should therefore read the `/v1/messages`
+  response as a chat completion.
+- **The backend.** `AgentgatewayBackend/anthropic-llm` uses agentgateway's
+  first-class `anthropic` provider (model `claude-sonnet-4-6`). The API key is
+  delivered as the SOPS-encrypted `secrets/anthropic-key.sops.yaml` (see
+  [Secret management](./secrets.md)) and consumed via the backend's
+  `policies.auth.secretRef`; the gateway sends it to the Anthropic API in the
+  `x-api-key` header.
+- **EPP scope.** The llm-d Router EPP picks endpoints inside an
+  `InferencePool`, i.e. in-cluster model-server pods. A hosted Anthropic API
+  is a single external upstream with no in-cluster pods, so there is nothing
+  for the EPP to schedule; the Anthropic path bypasses the EPP by design. The
+  EPP stays in the path for the self-hosted pool; EPP coverage for external
+  endpoints would be an upstream llm-d feature request, tracked separately.
+- **Token budget.** The 100k tokens/minute `vllm-sim-token-budget` policy
+  targets both routes, so the shared budget covers both providers per proxy.
+
 ## What is intentionally out of scope
 
 - **GPU scheduling / quota** - the reference runs CPU-only (simulator); the vLLM
@@ -240,6 +285,8 @@ AgentgatewayBackend, and the LLM route all keep working unchanged. This is the
 - **Model registry / training / evaluation pipelines** - the CDF AI SIG's
   MLOps-continuous-training and agent-harness scope; the SIG's non-goals
   include not picking model providers.
-- **Secrets** - none are in-tree. The OpenAI-compatible path needs no API key;
-  if you point at an external model, inject the key as a secret referenced by
-  the backend, never as a literal.
+- **Secrets** - the only in-tree credential is the Anthropic API key, as the
+  SOPS-encrypted `secrets/anthropic-key.sops.yaml` (see
+  [Secret management](./secrets.md)); the OpenAI-compatible path needs no API
+  key. If you point at another external model, inject the key the same way,
+  never as a literal.

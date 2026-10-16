@@ -1,8 +1,11 @@
 # The Anthropic-native route: the Anthropic Messages API wire format
 # gets its own client-facing path (/v1/messages) because it is a
 # different format from the OpenAI chat completions path - the path, not
-# the model field, selects the provider. An Anthropic SDK client points
-# its base URL at the gateway and works unchanged.
+# the model field, selects the provider. Requests arrive in the
+# Anthropic shape; on the pinned agentgateway v1.6.0 the completion
+# comes back in the OpenAI chat-completions response shape (the path
+# defaults to the completions traffic type) - see docs/inference.md,
+# "The native path".
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
 metadata:

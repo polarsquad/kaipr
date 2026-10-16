@@ -1,0 +1,33 @@
+# Model-based routing. Runs before routing on the gateway: extracts
+# json(request.body).model through a map into the
+# X-Gateway-Base-Model-Name header, and the HTTPRoute rules in
+# llm-route.yaml match on that header (one rule per model).
+#
+# The map doubles as an alias table: the keys are the model names clients
+# may send, the values are the canonical names the route rules match. Add
+# a new model by adding a Deployment (model-server/), an InferencePool
+# (inference/), a backend (policies/), a rule (llm-route.yaml), and an
+# entry in this map.
+#
+# A model that is not in the map produces no matching header, matches no
+# rule, and the gateway answers 404.
+apiVersion: agentgateway.dev/v1alpha1
+kind: AgentgatewayPolicy
+metadata:
+  name: vllm-sim-model-routing
+  namespace: ai-platform
+spec:
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: inference-gateway
+  traffic:
+    phase: PreRouting
+    transformation:
+      request:
+        set:
+          X-Gateway-Base-Model-Name: |
+            {
+              "Qwen/Qwen3-32B": "Qwen/Qwen3-32B",
+              "Qwen/Qwen3-8B": "Qwen/Qwen3-8B",
+            }[string(json(request.body).model)]

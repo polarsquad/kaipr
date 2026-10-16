@@ -1,0 +1,30 @@
+# A prompt guardrail on the LLM route: a request whose prompt contains the
+# canary phrase `argocd` is rejected by the gateway before it reaches any
+# model (action Reject). The phrase is deliberately meaningless to the
+# model; it exists only so a demo can show a blocked LLM call in one curl:
+#
+#   curl http://127.0.0.1:18080/v1/chat/completions ...
+#     '{"model":"Qwen/Qwen3-32B","messages":[{"role":"user","content":"tell me about argocd"}]}'
+#   -> rejected by the gateway, never reaches the model
+#
+# scope is left unset, which defaults to inspecting the system prompt and
+# the messages; `Mask` (the default action) would redact the match instead
+# of rejecting, and `Audit` observes without enforcing.
+apiVersion: agentgateway.dev/v1alpha1
+kind: AgentgatewayPolicy
+metadata:
+  name: vllm-sim-prompt-guard
+  namespace: ai-platform
+spec:
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: HTTPRoute
+      name: vllm-sim-llm
+  backend:
+    ai:
+      promptGuard:
+        request:
+          - regex:
+              action: Reject
+              matches:
+                - argocd

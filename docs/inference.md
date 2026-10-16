@@ -23,7 +23,8 @@ then `local-ai-platform` (path `workload/local-host/ai-platform/app/`), which
 | agentgateway | `ai-platform/app/agentgateway/` | the control plane (controller), the `agentgateway` GatewayClass, the `inference-gateway` Gateway, and the self-deployed data plane |
 | Model server | `ai-platform/app/model-server/` | a CPU-reproducible vLLM stand-in (`vllm-sim`) |
 | llm-d Router | `ai-platform/app/inference/` | the `InferencePool` + EPP Deployment/Service (no HTTPRoute) |
-| LLM policies | `ai-platform/app/policies/` | the `AgentgatewayBackend`, the single LLM `HTTPRoute`, and a token-budget `AgentgatewayPolicy` |
+| LLM policies | `ai-platform/app/policies/` | the two `AgentgatewayBackend`s (self-hosted `vllm-sim`, hosted `anthropic-llm`), the two LLM `HTTPRoute`s, and a token-budget `AgentgatewayPolicy` |
+| Secrets | `ai-platform/app/secrets/` | the SOPS-encrypted `anthropic-key` Secret (the Anthropic API key) |
 
 Pinned versions (Renovate tracks the OCI/Git tags):
 
@@ -45,37 +46,63 @@ custom-provider translation - do not pin it for an inference reference.
 
 ## The request path
 
-There is one route on the gateway, and it carries the whole pipeline:
+The self-hosted path is one route on the gateway, and it carries the whole
+pipeline (the hosted Anthropic path is a second, parallel route - see
+[Multi-provider](#multi-provider-anthropic-hosted)):
 
 ```
 Client
   -> inference-gateway Gateway (agentgateway data plane)
-  -> HTTPRoute vllm-sim-llm  (matches /v1/chat/completions)
-  -> AgentgatewayBackend vllm-sim   (LLM-aware: token counting, token budget)
-  -> InferencePool vllm-sim         (groups the model-server pods by label)
+  -> PreRouting transformation (model-routing policy): extracts the
+     requested model name from the JSON body into the
+     X-Gateway-Base-Model-Name header
+  -> HTTPRoute vllm-sim-llm  (matches /v1/chat/completions + the header;
+     one rule per model)
+  -> AgentgatewayBackend vllm-sim | vllm-sim-8b   (LLM-aware: token
+     counting, token budget, prompt guardrail)
+  -> InferencePool vllm-sim | vllm-sim-8b         (groups that model's
+     model-server pods by label)
   -> llm-d Router EPP               (picks one pod via ext-proc)
-  -> model-server pod (vllm-sim)
+  -> model-server pod (vllm-sim or vllm-sim-8b)
 ```
 
-- The **InferencePool** selects the model-server pods by the label
-  `app: vllm-sim` and points at the EPP (`endpointPickerRef`).
-- The **EPP** (llm-d Router) makes the model-aware endpoint choice and talks
-  to agentgateway over the Gateway API Inference Extension protocol
-  (ext-proc). agentgateway's `inferenceExtension.enabled=true` is what
-  implements the gateway side of that protocol.
-- The **AgentgatewayBackend** wraps the InferencePool with a `custom` provider
-  (model `Qwen/Qwen3-32B`, completions formats), which is what lets agentgateway
-  parse the LLM request/response and apply LLM features on top of the EPP's
-  endpoint selection.
+- The **model-routing policy** (an `AgentgatewayPolicy` with
+  `traffic.phase: PreRouting`) runs on the gateway before routing: it takes
+  `json(request.body).model` through a map into the
+  `X-Gateway-Base-Model-Name` header. The map doubles as an alias table
+  (sent name in, canonical name out). A model that is not in the map
+  produces no matching header, matches no rule, and the gateway answers 404.
+- The **InferencePool** selects the model-server pods by label
+  (`app: vllm-sim` or `app: vllm-sim-8b`) and points at the EPP
+  (`endpointPickerRef`).
+- The **EPP** (llm-d Router) makes the model-aware endpoint choice within
+  one pool and talks to agentgateway over the Gateway API Inference
+  Extension protocol (ext-proc). agentgateway's
+  `inferenceExtension.enabled=true` is what implements the gateway side of
+  that protocol.
+- The **AgentgatewayBackend** wraps the InferencePool with a `custom`
+  provider (the model's name, completions formats), which is what lets
+  agentgateway parse the LLM request/response and apply LLM features on top
+  of the EPP's endpoint selection.
+- The **prompt-guardrail policy** (`spec.backend.ai.promptGuard`) inspects
+  every prompt (system prompt + messages by default) and rejects a request
+  that contains the canary phrase `argocd` before it reaches the model.
 - The **token-budget policy** enforces at most 100k tokens per minute per
-  proxy (input + output). Counts are known after a request completes, so the
-  limit applies to subsequent requests (HTTP 429 when exceeded) - a reference
-  "cost governance" control.
+  proxy (input + output), shared across both model rules. Counts are known
+  after a request completes, so the limit applies to subsequent requests
+  (HTTP 429 when exceeded) - a reference "cost governance" control.
 
-Routing to the `AgentgatewayBackend` (instead of straight to the InferencePool)
-is deliberate: it is the documented way to keep the EPP in the path *and* get
-agentgateway's LLM features. A plain HTTPRoute-to-InferencePool route would do
-endpoint selection only, with no LLM features.
+Routing to the `AgentgatewayBackend` (instead of straight to the
+InferencePool) is deliberate: it is the documented way to keep the EPP in
+the path *and* get agentgateway's LLM features. A plain
+HTTPRoute-to-InferencePool route would do endpoint selection only, with no
+LLM features.
+
+Why one pool per model: an EPP scores and picks within one homogeneous
+model (its metrics - KV cache usage, queue depth - are per-model). The
+cross-model choice ("which model serves this request?") is a gateway
+decision, which is exactly what the PreRouting header rewrite + per-model
+route rules implement, using only agentgateway-native constructs.
 
 ## CRD prerequisites
 
@@ -140,20 +167,22 @@ flux get sources oci -n flux-system | grep -E 'agentgateway|llm-d'
 When the pieces are ready, verify each stage of the path:
 
 ```sh
-# model servers (2 replicas, labeled app=vllm-sim)
+# model servers (2 replicas app=vllm-sim, 1 replica app=vllm-sim-8b)
 kubectl get pods -n ai-platform -l app=vllm-sim
+kubectl get pods -n ai-platform -l app=vllm-sim-8b
 
-# the pool selects them and references the EPP
+# each pool selects its model's pods and references its EPP
 kubectl get inferencepool vllm-sim -n ai-platform
-kubectl get deployment vllm-sim-epp -n ai-platform
+kubectl get inferencepool vllm-sim-8b -n ai-platform
+kubectl get deployment vllm-sim-epp vllm-sim-8b-epp -n ai-platform
 
 # the LLM route is PROGRAMMED and ATTACHED to the gateway
 kubectl get httproute vllm-sim-llm -n ai-platform -o jsonpath='{.status.conditions}'
 
 # the agentgateway LLM policies are bound (Accepted=True means the
 # AgentgatewayBackend translated, including the custom provider)
-kubectl get agentgatewaybackend vllm-sim -n ai-platform
-kubectl get agentgatewaypolicy vllm-sim-token-budget -n ai-platform
+kubectl get agentgatewaybackend vllm-sim vllm-sim-8b -n ai-platform
+kubectl get agentgatewaypolicy -n ai-platform
 ```
 
 The `inference-gateway` Gateway has no `spec.addresses` on a laptop kind
@@ -168,7 +197,21 @@ curl -s http://localhost:18080/v1/chat/completions   -H 'content-type: applicati
 ```
 
 The simulator returns a deterministic, model-shaped completion (no weights, no
-GPU) - enough to prove the path end to end.
+GPU) - enough to prove the path end to end. The response headers include
+`X-Inference-Pod` (the EPP's pick); with two pools that header also shows
+*which model* served the request. The same smoke test exercises the other
+capabilities:
+
+```sh
+# the second model: same route, different pool
+curl -s http://localhost:18080/v1/chat/completions   -H 'content-type: application/json'   -d '{"model":"Qwen/Qwen3-8B","messages":[{"role":"user","content":"hi"}],"max_tokens":8}'
+
+# a model not in the routing map: the gateway answers 404
+curl -s http://localhost:18080/v1/chat/completions   -H 'content-type: application/json'   -d '{"model":"other/model","messages":[{"role":"user","content":"hi"}],"max_tokens":8}'
+
+# the canary phrase: the prompt guardrail rejects it before the model
+curl -s http://localhost:18080/v1/chat/completions   -H 'content-type: application/json'   -d '{"model":"Qwen/Qwen3-32B","messages":[{"role":"user","content":"tell me about argocd"}],"max_tokens":8}'
+```
 
 ### The browser demo
 
@@ -189,15 +232,46 @@ It starts the `inference-gateway` port-forward on `127.0.0.1:18080` when
 none is listening (reusing one when there is), then serves the page at
 <http://127.0.0.1:18081/>. Ports are overridable (`GATEWAY_PORT`,
 `DEMO_PORT`, or the script's `--upstream` flag). The page shows HTTP 429s
-when the token-budget policy trips, with the body rendered inline.
+when the token-budget policy trips, with the body rendered inline. The page
+requests `Qwen/Qwen3-32B`, so its replies come from the 32B pool; changing
+the `model` field in `scripts/inference-demo.py` to `Qwen/Qwen3-8B`
+re-routes it to the 8B pool (one line, no cluster change).
+
+### The token-budget demo
+
+The token-budget policy is a per-minute limit, so it recovers on its own;
+the demo just needs to push it over the edge and wait.
+`scripts/token-budget-demo.sh` does that: it sends chat completions
+(`max_tokens 512` - the sim pads its canned output to the cap, so each
+request burns ~510 tokens), reports the first rejection with the
+cumulative token count, waits for the per-minute window to roll, and shows
+the budget accept a request again.
+
+Host-side:
+
+```sh
+mise -E local-host run token-budget-demo
+```
+
+The task sets up the gateway port-forward the same way `inference-demo`
+does, then runs the script against `http://127.0.0.1:18080`. With the
+reference budget of 100,000 tokens/minute, the burn takes a few hundred
+requests (tens of seconds of loopback load). The budget is shared across
+both model rules; the script's model is overridable via the `MODEL` env
+var. If the limiter behaves as a sliding window rather than a fixed one,
+the script waits one full minute and retries once before reporting.
 
 ## The vLLM overlay
 
-To run a real model instead of the simulator, replace `model-server/` with a
-vLLM Deployment and keep the same label contract; nothing else in the platform
-changes. The InferencePool keeps selecting by `app: vllm-sim`, and the
-AgentgatewayBackend's `custom` provider and formats stay as-is (OpenAI
-compatible).
+To run a real model instead of the simulator, replace the relevant
+`model-server/` Deployment with a vLLM Deployment and keep the same label
+contract; nothing else in the platform changes. Each InferencePool keeps
+selecting by its label (`app: vllm-sim` for the 32B pool,
+`app: vllm-sim-8b` for the 8B pool), and the matching AgentgatewayBackend's
+`custom` provider and formats stay as-is (OpenAI compatible). To swap in a
+real model under a *different* name, update the backend's `model`, the
+routing map in `policies/model-routing.yaml`, and the route rule's header
+value to match.
 
 ```yaml
 # model-server/vllm.yaml (replaces the simulator Deployment; same label)
@@ -233,6 +307,48 @@ Because the label and port match the InferencePool, the EPP, the
 AgentgatewayBackend, and the LLM route all keep working unchanged. This is the
 "simulated now, real later" split the reference is built around.
 
+## Multi-provider: Anthropic (hosted)
+
+The gateway serves one more provider next to the self-hosted one: the hosted
+Anthropic API. The two providers are selected by path, not by the model field:
+
+| Client path | Provider | Wire format |
+|---|---|---|
+| `POST /v1/chat/completions` | `vllm-sim` (self-hosted: InferencePool + EPP) | OpenAI chat completions |
+| `POST /v1/messages` | `anthropic-llm` (hosted Anthropic API) | Anthropic Messages API |
+
+- **The native path.** The Anthropic provider's wire contract is the
+  Anthropic Messages API, not OpenAI chat completions, so it gets its own
+  client-facing `HTTPRoute` (`anthropic-llm`, `PathPrefix /v1/messages`). No
+  PreRouting content routing is needed: because the two providers speak
+  different wire formats, the path selects the provider (a cross-format
+  model-field route would require the pipeline to translate between
+  formats). On the pinned v1.6.0, the LLM pipeline accepts the Anthropic
+  request shape (string or content-block messages, `max_tokens`, etc.) and
+  returns the completion in the OpenAI chat-completions response shape.
+  That is the documented default: without a traffic-type rule, all
+  traffic is handled as the `completions` type. The pinned v1.6.0 CRD
+  does expose per-path rules as `AgentgatewayBackend
+  spec.policies.ai.routes` (keys are URL path suffixes matched ends-with,
+  values include `Messages`, `Completions`, `Passthrough`); pinning
+  `/v1/messages` to the `Messages` type is tracked in issue #27.
+  Clients of this reference should therefore read the `/v1/messages`
+  response as a chat completion.
+- **The backend.** `AgentgatewayBackend/anthropic-llm` uses agentgateway's
+  first-class `anthropic` provider (model `claude-sonnet-4-6`). The API key is
+  delivered as the SOPS-encrypted `secrets/anthropic-key.sops.yaml` (see
+  [Secret management](./secrets.md)) and consumed via the backend's
+  `policies.auth.secretRef`; the gateway sends it to the Anthropic API in the
+  `x-api-key` header.
+- **EPP scope.** The llm-d Router EPP picks endpoints inside an
+  `InferencePool`, i.e. in-cluster model-server pods. A hosted Anthropic API
+  is a single external upstream with no in-cluster pods, so there is nothing
+  for the EPP to schedule; the Anthropic path bypasses the EPP by design. The
+  EPP stays in the path for the self-hosted pool; EPP coverage for external
+  endpoints would be an upstream llm-d feature request, tracked separately.
+- **Token budget.** The 100k tokens/minute `vllm-sim-token-budget` policy
+  targets both routes, so the shared budget covers both providers per proxy.
+
 ## What is intentionally out of scope
 
 - **GPU scheduling / quota** - the reference runs CPU-only (simulator); the vLLM
@@ -240,6 +356,8 @@ AgentgatewayBackend, and the LLM route all keep working unchanged. This is the
 - **Model registry / training / evaluation pipelines** - the CDF AI SIG's
   MLOps-continuous-training and agent-harness scope; the SIG's non-goals
   include not picking model providers.
-- **Secrets** - none are in-tree. The OpenAI-compatible path needs no API key;
-  if you point at an external model, inject the key as a secret referenced by
-  the backend, never as a literal.
+- **Secrets** - the only in-tree credential is the Anthropic API key, as the
+  SOPS-encrypted `secrets/anthropic-key.sops.yaml` (see
+  [Secret management](./secrets.md)); the OpenAI-compatible path needs no API
+  key. If you point at another external model, inject the key the same way,
+  never as a literal.

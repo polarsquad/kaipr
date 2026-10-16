@@ -10,7 +10,9 @@ GitOps scaffolding (bootstrap engine, toolbox, repo layout) is **derived from
 [krops](https://github.com/polarsquad/krops)**, scoped to one environment
 (`local-host`). Desired state is plain declarative YAML in Git; Flux delivers
 it and controllers reconcile the platform to match. No Terraform, no state
-file, no cloud account, no secrets.
+file, no cloud account, and no plaintext secrets: credentials enter the tree
+only as SOPS-encrypted `*.sops.yaml` manifests under `workload/` (see
+`docs/secrets.md`).
 
 The reference is **single-cluster by design**: one kind cluster runs the Flux
 instance and the AI platform. There is no management cluster, no Cluster API,
@@ -39,7 +41,8 @@ reference scopes it to a single environment (`local-host`) via
     (namespace, vendored Gateway API + Inference Extension CRDs, the
     agentgateway.dev CRDs HelmRelease); `app/` is the app layer
     (`agentgateway/`, `model-server/` (the CPU vLLM simulator),
-    `inference/` (InferencePool + llm-d Router EPP), and `policies/`
+    `inference/` (InferencePool + llm-d Router EPP), `secrets/`
+    (SOPS-encrypted provider keys), and `policies/`
     (AgentgatewayBackend, LLM route, token-budget policy)). `flux-ks.yaml`
     defines the two Flux Kustomizations; the app layer `dependsOn` the CRD
     layer (first-boot ordering: Flux dry-runs a tree before applying it).
@@ -64,7 +67,7 @@ reference scopes it to a single environment (`local-host`) via
   worktree, and the docs helper rule).
 - `docs/`: `inference.md` (the AI layer), `architecture.md`,
   `operations.md`, `bootstrap-cli.md`, `dependencies.md`, `extending.md`,
-  `konflate.md`.
+  `konflate.md`, `secrets.md` (SOPS/age secret management).
 - `.github/workflows/`: `validate`, `bootstrap-rs`, `konflate`,
   `toolbox-release`.
 
@@ -74,10 +77,15 @@ reference scopes it to a single environment (`local-host`) via
    live state, but make every persistent change here and let Flux converge.
 2. Flux tracks `main`. Nothing reconciles until merged to `main`. Do not
    promise a fix is "live" until then.
-3. No secrets in the stack. `local-host` uses no cloud credentials and no
-   API keys, and the AI platform's OpenAI-compatible path needs no API key.
-   If you point at an external model, inject the key as a Kubernetes Secret
-   referenced by the backend, never as a literal in the tree.
+3. No plaintext secrets in the stack. Secrets enter the tree only as
+   SOPS-encrypted `*.sops.yaml` manifests under `workload/` (only
+   `data`/`stringData` is encrypted); the age private key stays local and
+   gitignored, never committed, and the `sops-age` cluster secret is created
+   by bootstrap from it. `local-host` still uses no cloud credentials, and
+   the AI platform's OpenAI-compatible path needs no API key. If you point
+   at an external model, encrypt the key into a `*.sops.yaml` manifest (see
+   `docs/secrets.md`) so the backend reads it from a Kubernetes Secret -
+   never as a literal in the tree.
 4. Run `mise run validate` before pushing. PRs are reviewed as rendered Flux
    diffs by the konflate workflow, so what you push is what gets reviewed.
 

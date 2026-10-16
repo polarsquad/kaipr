@@ -98,6 +98,63 @@ seed_flux() {
     --timeout 10m \
     --registry-config "$anon_registry_config"
 
+  # ── SOPS age decryption key secret ────────────────────────────────────────
+  # Flux's kustomize-controller uses this key to decrypt *.sops.yaml manifests
+  # during reconciliation (the local-ai-platform Kustomization declares
+  # spec.decryption; see docs/secrets.md). Flux scans the Secret for keys
+  # matching the pattern `keys.<public-key>.agekey` and passes each match to
+  # the age library for decryption.
+  #
+  # The PRIVATE key is AGE_KEY_FILE (default age.agekey, env-overridable,
+  # e.g. in .env); the matching public key is the recipient in .sops.yaml.
+  # Generate the pair with:  mise run sops-keygen
+  #
+  # Only flux-system is seeded: this repo reconciles every Kustomization from
+  # flux-system (unlike krops, which also seeds default for its
+  # ResourceSet-generated Kustomizations), and spec.decryption.secretRef
+  # resolves only in the Kustomization's own namespace.
+  #
+  # Delete first: kubectl create is not idempotent, and a re-run after an age
+  # key rotation must not leave a stale key from the previous keypair behind.
+  local age_key_file="${AGE_KEY_FILE:-age.agekey}"
+  if [ ! -f "$age_key_file" ]; then
+    echo "ERROR: age key file not found at '$age_key_file'." >&2
+    echo "       Generate one with:  mise run sops-keygen" >&2
+    echo "       and add its PUBLIC key to .sops.yaml. See docs/secrets.md." >&2
+    exit 1
+  fi
+  # Validate the age key file format first (before extracting the public key)
+  # so a malformed file fails loudly instead of producing an empty key name.
+  local age_content missing_fields=""
+  age_content="$(cat "$age_key_file")"
+  printf '%s\n' "$age_content" | grep -q '^# created:' || missing_fields="${missing_fields}# created: header, "
+  printf '%s\n' "$age_content" | grep -q '^# public key:' || missing_fields="${missing_fields}# public key: comment, "
+  printf '%s\n' "$age_content" | grep -q '^AGE-SECRET-KEY-' || missing_fields="${missing_fields}AGE-SECRET-KEY- line, "
+  if [ -n "$missing_fields" ]; then
+    echo "ERROR: '$age_key_file' is not a valid age key file." >&2
+    echo "       Missing: ${missing_fields%, }" >&2
+    exit 1
+  fi
+  # Derive the public key: AGE_PUBLIC_KEY (e.g. from .env) wins, otherwise
+  # age-keygen. The toolbox image does not ship the age binary, so a toolbox
+  # run falls back to AGE_PUBLIC_KEY in .env when the key cannot be derived.
+  local age_pubkey="${AGE_PUBLIC_KEY:-}"
+  if [ -z "$age_pubkey" ]; then
+    if command -v age-keygen >/dev/null 2>&1; then
+      age_pubkey="$(age-keygen -y "$age_key_file")"
+    else
+      echo "ERROR: age-keygen not found and AGE_PUBLIC_KEY is not set." >&2
+      echo "       Set AGE_PUBLIC_KEY in .env to the public key printed by" >&2
+      echo "       'mise run sops-keygen'. See docs/secrets.md." >&2
+      exit 1
+    fi
+  fi
+  echo ">>> Creating sops-age decryption secret in flux-system..."
+  kubectl delete secret sops-age -n flux-system --ignore-not-found
+  kubectl create secret generic sops-age \
+    --namespace flux-system \
+    --from-file="keys.${age_pubkey}.agekey=${age_key_file}"
+
   # ── Install the FluxInstance via Helm ───────────────────────────────────────
   echo ">>> Installing FluxInstance via Helm..."
   # Helm 4's watcher strategy treats the FluxInstance's transient InProgress

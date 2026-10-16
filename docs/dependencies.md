@@ -14,9 +14,10 @@ dependency dashboard issue.
 
 What this repository actually ships, Renovate manages:
 
-- `mise.toml`: tool pins (go, kubectl, python, kind, helm, flux2, uv) plus the
-  mise CLI self-pin (`min_version`). The per-tool custom managers resolve each
-  pin against the exact upstream repository it installs from.
+- `mise.toml`: tool pins (go, kubectl, python, kind, helm, flux2, sops, age,
+  uv) plus the mise CLI self-pin (`min_version`). The per-tool custom
+  managers resolve each pin against the exact upstream repository it installs
+  from.
 - `bootstrap.toml`: the imperative chart pins consumed by `kaipr-bootstrap`.
   `local-host` has one, `flux-operator`. An annotation-driven custom manager
   reads the adjacent `# renovate:` metadata. `mise run validate` cross-checks
@@ -44,10 +45,12 @@ readable tags. Nothing automerges.
 
 `renovate.json5` was inherited from krops. The rules for surfaces this
 repository does not ship - the cloud environment mise layers, the
-management-cluster manifests, the CAPI provider CRs, the SOPS/age tooling, the
-`airgap/` packaging, and the `virtualized-e2e/` harness - were pruned in the
-cleanup tracked by issue #12 and again with the single-cluster change; only
-rules targeting files this repo ships remain.
+management-cluster manifests, the CAPI provider CRs, the `airgap/` packaging,
+and the `virtualized-e2e/` harness - were pruned in the cleanup tracked by
+issue #12 and again with the single-cluster change; only rules targeting
+files this repo ships remain. The SOPS/age tooling is no longer a pruned
+surface: this repository now ships the sops/age mise pins, and each has its
+own per-tool custom manager (the managed `mise.toml` surface above).
 
 ## Toolbox release version
 

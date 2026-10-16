@@ -1,0 +1,21 @@
+# A hosted-provider backend: agentgateway's first-class `anthropic`
+# provider speaks the Anthropic Messages API directly to the Anthropic
+# API, so there is no InferencePool and no llm-d Router EPP in this path
+# (a hosted API is one external upstream - nothing to pick endpoints
+# among). The API key comes from the SOPS-encrypted `anthropic-key`
+# Secret via policies.auth.secretRef and is sent in the `x-api-key`
+# header.
+apiVersion: agentgateway.dev/v1alpha1
+kind: AgentgatewayBackend
+metadata:
+  name: anthropic-llm
+  namespace: ai-platform
+spec:
+  ai:
+    provider:
+      anthropic:
+        model: claude-sonnet-4-6
+  policies:
+    auth:
+      secretRef:
+        name: anthropic-key

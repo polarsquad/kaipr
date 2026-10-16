@@ -5,4 +5,5 @@ resources:
   - backend-8b.yaml
   - llm-route.yaml
   - model-routing.yaml
+  - guardrail.yaml
   - token-budget.yaml

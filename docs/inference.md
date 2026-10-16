@@ -254,10 +254,15 @@ Anthropic API. The two providers are selected by path, not by the model field:
   model-field route would require the pipeline to translate between
   formats). On the pinned v1.6.0, the LLM pipeline accepts the Anthropic
   request shape (string or content-block messages, `max_tokens`, etc.) and
-  returns the completion in the OpenAI chat-completions response shape -
-  per-route format pinning (`spec.ai.routes`) exists only in newer
-  agentgateway releases, not in the v1.6.0 CRD. Clients of this reference
-  should therefore read the `/v1/messages` response as a chat completion.
+  returns the completion in the OpenAI chat-completions response shape.
+  That is the documented default: without a traffic-type rule, all
+  traffic is handled as the `completions` type. The pinned v1.6.0 CRD
+  does expose per-path rules as `AgentgatewayBackend
+  spec.policies.ai.routes` (keys are URL path suffixes matched ends-with,
+  values include `Messages`, `Completions`, `Passthrough`); pinning
+  `/v1/messages` to the `Messages` type is tracked in issue #27.
+  Clients of this reference should therefore read the `/v1/messages`
+  response as a chat completion.
 - **The backend.** `AgentgatewayBackend/anthropic-llm` uses agentgateway's
   first-class `anthropic` provider (model `claude-sonnet-4-6`). The API key is
   delivered as the SOPS-encrypted `secrets/anthropic-key.sops.yaml` (see
